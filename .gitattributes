@@ -1,0 +1,17 @@
+# Line endings: the repo and every working tree hold LF, whatever core.autocrlf says, so a file never ends up with
+# mixed endings and a server's zip (scripts/pack.mjs) holds the same bytes as the repo. npm test checks for mixed files.
+# PowerShell 5.1 and 7 both run LF scripts, and the .ps1 files have always shipped as LF, so they need no exception.
+* text=auto eol=lf
+
+# Binaries: never converted or diffed as text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.zip binary
+*.exe binary
+*.dll binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
