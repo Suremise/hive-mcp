@@ -262,7 +262,8 @@ async function main(argv) {
         // Its steps so far go too: the scenarios weren't checked, so nothing in them passed or failed.
         ctx.steps.splice(before)
         ctx.notRun[kind] = { reason: e.message, installer: e.installer }
-        log(`${kind}: NOT RUN: Windows refused ${e.installer}. ${e.message}`)
+        // Progress only: the run's one NOT RUN line, with the reason, is the verdict at the end.
+        log(`${kind}: Windows refused ${e.installer}; its scenarios are skipped`)
         continue
       }
       log(`${kind}: ERROR: ${e.message}`)
