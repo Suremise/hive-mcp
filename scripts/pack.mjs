@@ -95,6 +95,17 @@ function localRequires(dir, name, files) {
   return problems
 }
 
+/** Text files holding a CR: the repo stores LF (.gitattributes), so the installed copy would differ from the published
+ * file by its line endings. A file with a NUL byte is binary and isn't checked, as git decides. */
+function crlfFiles(dir, name, files) {
+  const problems = []
+  for (const e of files) {
+    const data = readFileSync(join(dir, e.name.slice(name.length + 1)))
+    if (!data.includes(0) && data.includes(13)) problems.push(`CR line endings (the repo's copy is LF): ${e.name}`)
+  }
+  return problems
+}
+
 function pack(name) {
   const src = join(ROOT, 'servers', name)
   const stage = join(DIST, '.stage')
@@ -109,7 +120,7 @@ function pack(name) {
     const c = check(zip, name)
     const def = JSON.parse(readFileSync(join(stage, name, c.def), 'utf8'))
     const ref = references(def, name, c.files)
-    const problems = [...c.problems, ...ref.problems, ...localRequires(join(stage, name), name, c.files)]
+    const problems = [...c.problems, ...ref.problems, ...localRequires(join(stage, name), name, c.files), ...crlfFiles(join(stage, name), name, c.files)]
     console.log(`${zip}\n  ${c.files.length} files, definition ${name}/${c.def}, refers to ${ref.refs.join(', ')}`)
     for (const e of c.files) console.log(`    ${e.name}`)
     if (problems.length) throw new Error(`${name}.zip is not in Hive's layout:\n  ${problems.join('\n  ')}`)
