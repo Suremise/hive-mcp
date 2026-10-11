@@ -72,7 +72,8 @@ test('inSandbox: logging failing and every stop failing → the server is still 
   }
 })
 
-const BLOCKED_ERR = 'Start-Process : This command cannot be run due to the error: An Application Control policy has blocked this file.\r\nAt C:\\wsb-mcp\\hive\\install.ps1:17 char:6'
+// As a real Sandbox wrote it (RC2), but wrapped mid-word: PowerShell wraps at the console width wherever that falls.
+const BLOCKED_ERR = 'Start-Process : This command cannot be run due to the error: An Applic \r\nation Control policy has blocked this file.\r\nAt C:\\wsb-mcp\\hive\\install.ps1:17 char:6'
 const SAC_ON = '\r\nHKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\CI\\Policy\r\n    VerifiedAndReputablePolicyState    REG_DWORD    0x1\r\n'
 
 /** Runs hive-checks.js on the stub with these guest commands scripted: a fake Hive repo, two installers. */

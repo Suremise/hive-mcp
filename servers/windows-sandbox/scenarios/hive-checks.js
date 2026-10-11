@@ -28,7 +28,8 @@ const isInside = (child, parent) => { const r = path.relative(parent, child); re
 // Windows refusing an installer under an App Control policy: in a Sandbox where Smart App Control enforces, every
 // unsigned installer. Nothing after it can be checked, so that Sandbox's scenarios are NOT RUN with one reason rather
 // than dozens of failures. The policy is only ever read (reg query), never changed, not even in the throwaway Sandbox.
-const BLOCKED = /Application Control policy has blocked this file/i
+// PowerShell wraps the error at the console width, anywhere in the text (" \r\n" seen mid-sentence): match without spaces.
+const blocked = text => /AnApplicationControlpolicyhasblockedthisfile/i.test(String(text).replace(/\s+/g, ''))
 const SAC_KEY = 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\CI\\Policy'
 /** A Sandbox's scenarios that couldn't run: message is the reason (the same for every installer), installer the file. */
 class NotRun extends Error {
@@ -167,7 +168,7 @@ function steps(srv, ctx) {
   /** Runs an installer through install.ps1; one refused by an App Control policy ends this Sandbox's scenarios: NOT RUN. */
   const install = async (scenario, what, exe, args, o) => {
     const r = await ps(scenario, what, 'install.ps1', `-Exe "${exe}" ${args}`, o)
-    if (BLOCKED.test(r.text)) throw new NotRun(blockedReason(ctx.sac), exe.split('\\').pop())
+    if (blocked(r.text)) throw new NotRun(blockedReason(ctx.sac), exe.split('\\').pop())
     return r
   }
   const desktop = async (scenario, name) => {
