@@ -6,6 +6,9 @@
  * A report passes only with full coverage: every scenario that was asked for ran, every step the runner took
  * succeeded (meta.steps), each driver finished (completed) and produced all its required checks and facts, and the
  * required screenshots were collected. Anything missing is a failed check, never a silent gap.
+ * The one exception: a run kind in meta.notRun ({ kind: { reason, installer } }) wasn't checked at all (its installer
+ * was refused by an App Control policy before anything could run). Its checks are left out and, unless another check
+ * failed, the report is NOT RUN with that reason.
  */
 const SCENARIOS = {
   1: 'Fresh install and first launch',
@@ -47,7 +50,10 @@ const describeShortcuts = list => list.map(l => `${l.name} (${inDesktop(l) ? 'De
 function evaluate(meta, files) {
   const checks = []
   const add = (scenario, name, ok, detail) => checks.push({ scenario, name, ok: !!ok, detail: ok ? undefined : String(detail ?? '') })
-  const ran = Array.isArray(meta.ran) ? meta.ran : []
+  const asked = Array.isArray(meta.ran) ? meta.ran : []
+  const notRun = Object.entries(meta.notRun || {}).filter(([k]) => asked.includes(k)).map(([kind, n]) => ({ kind, reason: n.reason, installer: n.installer }))
+  // What was checked: the kinds asked for, less those not run.
+  const ran = asked.filter(k => !notRun.some(n => n.kind === k))
   const need = (scenario, key) => {
     if (files[key] && typeof files[key] === 'object') return files[key]
     add(scenario, `${key}: result recorded`, false, files[`${key}:error`] || 'the scenario wrote no result (see the run log)')
@@ -68,7 +74,7 @@ function evaluate(meta, files) {
   const version = meta.installerVersion
 
   const unknown = ran.filter(k => !KINDS.includes(k))
-  if (!ran.length || unknown.length) add(0, 'The scenarios asked for ran', false, unknown.length ? `unknown: ${unknown.join(', ')}` : 'none ran')
+  if ((!asked.length) || unknown.length) add(0, 'The scenarios asked for ran', false, unknown.length ? `unknown: ${unknown.join(', ')}` : 'none ran')
   // Every step the runner took must have succeeded: a failed command or timeout fails the report.
   for (const s of meta.steps || []) add(s.scenario, `Step: ${s.what}`, s.ok, s.detail)
   for (const kind of ran.filter(k => KINDS.includes(k))) {
@@ -130,7 +136,7 @@ function evaluate(meta, files) {
   }
 
   for (const id of meta.leftRunning || []) add(0, `CLEANUP: Sandbox ${id} confirmed stopped`, false, `CLEANUP NOT CONFIRMED: Sandbox ${id} may still be running`)
-  if (!checks.length) add(0, 'At least one check ran', false, 'nothing was checked')
+  if (!checks.length && !notRun.length) add(0, 'At least one check ran', false, 'nothing was checked')
 
   const passed = checks.filter(c => c.ok).length
   const differences = []
@@ -139,7 +145,19 @@ function evaluate(meta, files) {
   }
   const s1 = files.s1
   if (s1?.facts?.gitMissing || files['s1-state']?.git === false) differences.push('**No Git** on a fresh machine: Hive shows its Git warning (status bar "Git", Agent Setup "Git not found"). Expected; a fresh-install difference.')
-  return { meta, checks, passed, failed: checks.length - passed, differences, files }
+  return { meta, checks, passed, failed: checks.length - passed, notRun, differences, files }
+}
+
+/** The report's one-line verdict: FAILED beats NOT RUN beats PASSED. */
+function verdict(r) {
+  const notRun = r.notRun || []
+  const kinds = notRun.map(n => n.kind).join(', ')
+  if (r.failed) return `FAILED: ${r.failed} of ${r.checks.length} checks${notRun.length ? `; not run: ${kinds}` : ''}`
+  if (notRun.length) {
+    const reasons = [...new Set(notRun.map(n => n.reason))].join(' ')
+    return `NOT RUN: ${reasons}${r.checks.length ? ` (not run: ${kinds}; the other ${r.checks.length} checks passed)` : ''}`
+  }
+  return `PASSED: all ${r.checks.length} checks`
 }
 
 function markdown(r) {
@@ -148,14 +166,19 @@ function markdown(r) {
   const lines = [
     `# Hive build checks in Windows Sandbox`,
     '',
-    `**${r.failed ? `FAILED: ${r.failed} of ${r.checks.length} checks` : `PASSED: all ${r.checks.length} checks`}** · ${m.date}`,
+    `**${verdict(r)}** · ${m.date}`,
     '',
     `- Installer: \`${m.installer}\` (version ${m.installerVersion}${m.buildInfo ? `, code ${m.buildInfo.code}, branch ${m.buildInfo.branch}, built ${m.buildInfo.builtAt}` : ''})`,
     m.previous ? `- Previous release for the upgrade: \`${m.previous}\` (version ${m.previousVersion})` : null,
     `- Host Windows ${m.hostBuild}; network **off** in the Sandbox; fake CLIs only, nothing signed in.`,
-    `- Scenarios run: ${(m.ran || []).join(', ') || 'none'}. Took ${m.minutes} min.`,
+    `- Scenarios run: ${(m.ran || []).filter(k => !(r.notRun || []).some(n => n.kind === k)).join(', ') || 'none'}. Took ${m.minutes} min.`,
     ''
   ].filter(l => l !== null)
+  if (r.notRun?.length) {
+    lines.push('## Not run', '', 'Nothing in these was checked, so none of their checks passed or failed:', '')
+    for (const n of r.notRun) lines.push(`- **${n.kind}**: Windows refused \`${n.installer}\`.`)
+    lines.push('', ...[...new Set(r.notRun.map(n => n.reason))].map(esc), '')
+  }
   const failed = r.checks.filter(c => !c.ok)
   if (failed.length) {
     lines.push('## Failed checks', '')
@@ -175,4 +198,4 @@ function markdown(r) {
   return lines.join('\n')
 }
 
-module.exports = { evaluate, markdown, SCENARIOS, KINDS, REQUIRED }
+module.exports = { evaluate, markdown, verdict, SCENARIOS, KINDS, REQUIRED }

@@ -233,7 +233,8 @@ below don't rely on that; the smoke test checks it so a Windows change is notice
 From the repo root, `npm test` runs every automated test below (`wsb.exe` stubbed, about a minute). From this folder:
 
 ```powershell
-node --test test\roots.test.js test\confine.test.js test\wsb.test.js test\server.test.js test\watchdog.test.js test\smoke-faults.test.js test\report.test.js test\hive-checks.test.js test\compare.test.js
+node test\clean-scratch.js      # npm test does this first: clears earlier runs' scratch (below)
+node --test test\roots.test.js test\confine.test.js test\wsb.test.js test\server.test.js test\watchdog.test.js test\smoke-faults.test.js test\report.test.js test\hive-checks.test.js test\compare.test.js test\clean-scratch.test.js
 node test\smoke.js --runs 3     # real Sandbox; skips cleanly where it's unavailable or another one is running
 ```
 
@@ -258,6 +259,7 @@ node test\smoke.js --runs 3     # real Sandbox; skips cleanly where it's unavail
   stop failing): every Sandbox it starts is stopped, or named in `smoke.json` → `leftRunning` with a non-zero exit.
 - `report.test.js`, `compare.test.js`, `hive-checks.test.js`: the example consumer below (its report, its
   comparison, and its runner's options and cleanup).
+- `clean-scratch.test.js`: the scratch cleanup below.
 - `smoke.js`, against a real Sandbox:
   - start, then run as user and as system;
   - the build folder is read-only, the network is off, and PowerShell errors come back as plain text;
@@ -269,6 +271,13 @@ node test\smoke.js --runs 3     # real Sandbox; skips cleanly where it's unavail
 
   Every Sandbox it starts gets a fallback stop in a `finally`. Scratch goes to `WSB_TEST_SCRATCH` (default under
   `%LOCALAPPDATA%\hive-test\scratch`).
+
+**Where the tests' output goes.** The automated tests write only to `WSB_TEST_SCRATCH` (default
+`%LOCALAPPDATA%\hive-test\scratch\wsb-mcp-tests`), never the repo: a folder per test, `<pid>-<n>-<name>`, with its
+fake profile, builds, sandbox runs and stub state. Before each `npm test`, `test\clean-scratch.js` removes earlier
+runs' folders, so the latest run's output stays there for debugging and the folder holds about one run's worth. It
+removes only folders the tests made (that name, with their `stub.json`), skips any whose test process is still
+running (its pid is live and the folder changed in the last hour: Windows reuses pids), and leaves one it can't remove (a file still open) for the next run.
 
 ## Example consumer: Hive's release checks
 
@@ -299,8 +308,21 @@ node scenarios\hive-checks.js --installer "<Hive repo>\dist\<folder>\Hive-Setup-
   - `report.md` (pass or fail per check, versions, timings, notes);
   - `report.json` (with every fact collected);
   - the screenshots, and `run.log`.
-- **Exit codes:** 0 all passed; 1 a check failed; 2 not run (bad options, the Sandbox unavailable, or another one
-  running: see `--wait-min`).
+- **Exit codes:** 0 all passed; 1 a check failed; 2 not run (bad options, the Sandbox unavailable, another one
+  running (see `--wait-min`), or an installer blocked, below).
+- **NOT RUN: an installer blocked.** If an App Control policy in the Sandbox refuses an installer ("An Application
+  Control policy has blocked this file"), that Sandbox's scenarios are **not run**. This happens when Smart App
+  Control enforces in the Sandbox, which blocks every unsigned installer. Nothing after the install could be checked,
+  so the report doesn't list dozens of failures that all have this one cause. Instead it says `NOT RUN` with one
+  reason, lists which installer each scenario couldn't install, and leaves those checks out; the exit code is 2.
+  - **Not a pass or a failure:** NOT RUN says nothing about the build. Sign the installer, or run the checks on a
+    machine without Smart App Control.
+  - **Mixed results:** if the other Sandbox's checks ran and all passed, the verdict is still NOT RUN. If any of them
+    failed, it is FAILED (exit 1), naming what wasn't run.
+  - **Read only:** the runner reads Smart App Control's state in the Sandbox (`reg query`
+    `HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy` `VerifiedAndReputablePolicyState`: 0 off, 1 on, 2 evaluation)
+    for the reason and `report.json` → `meta.smartAppControl`. It never turns Smart App Control or any other security
+    setting off, not even in the throwaway Sandbox.
 - **It passes only with full coverage:**
   - every scenario asked for ran;
   - every step (each install, driver run, screenshot and collect) succeeded;
