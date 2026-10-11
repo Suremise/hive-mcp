@@ -1,0 +1,12 @@
+{
+  "description": "Test builds on a clean, throwaway Windows in Windows Sandbox (sandbox_start, sandbox_run, sandbox_screenshot, sandbox_collect, sandbox_stop, sandbox_status). Builds and tools mapped read-only, one writable out folder, network off by default, always stopped. Turn on only in a dedicated testing project: every agent in a project where it is on gets it. Requires Windows 11 Pro/Enterprise 24H2+ with the Windows Sandbox feature, and Node 18+.",
+  "command": "node",
+  "args": [
+    "${HIVE_MCP_DIR}/windows-sandbox/server.js"
+  ],
+  "env": {
+    "WSB_MCP_ENABLED": "1",
+    "WSB_ROOTS_FROM_CWD": "1",
+    "WSB_TOOL_DIRS": "node=C:\\Program Files\\nodejs"
+  }
+}

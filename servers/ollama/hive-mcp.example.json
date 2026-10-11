@@ -1,0 +1,11 @@
+{
+  "description": "Delegate reading and drafting work to local Ollama models (list_local_models, ask_local_model with files). Saves cloud tokens: files are read by the server, only inside the agent's project (its MCP roots), and only the answer comes back. Requires Ollama running and Node 18+ on PATH.",
+  "command": "node",
+  "args": [
+    "${HIVE_MCP_DIR}/ollama/server.js"
+  ],
+  "env": {
+    "OLLAMA_HOST": "http://127.0.0.1:11434",
+    "OLLAMA_ROOTS_FROM_CWD": "1"
+  }
+}

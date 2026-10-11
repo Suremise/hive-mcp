@@ -1,0 +1,25 @@
+# Dependencies and build output
+node_modules/
+dist/
+
+# Local tool and agent state: never part of the repo
+.hive/
+.agents/
+.claude/
+.codex/
+reference/
+
+# Secrets
+.env
+.env.*
+
+# Logs and run output
+*.log
+logs/
+
+# OS files
+Thumbs.db
+ehthumbs.db
+desktop.ini
+$RECYCLE.BIN/
+.DS_Store
