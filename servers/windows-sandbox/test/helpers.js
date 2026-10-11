@@ -1,12 +1,12 @@
 /**
  * Test helpers: a scratch folder per test, the wsb stub's state, and a JSON-RPC client for server.js.
  * Scratch goes under WSB_TEST_SCRATCH (default %LOCALAPPDATA%\hive-test\scratch\wsb-mcp-tests), never the repo;
- * clean-scratch.js clears earlier runs' folders there before `npm test`.
+ * The repo's test/clean-scratch.js clears earlier runs' folders there before `npm test`.
  */
 const fs = require('fs')
 const path = require('path')
 const { server } = require('../client')
-const { BASE } = require('./clean-scratch')
+const BASE = require('../../../test/clean-scratch').TARGETS['windows-sandbox'].base
 
 const STUB = path.join(__dirname, 'stub-wsb.js')
 

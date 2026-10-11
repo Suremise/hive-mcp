@@ -152,3 +152,11 @@ run the server over stdio against a fake Ollama (no models needed) and cover:
 - roots changed between calls;
 - the unchanged reading rules (skips, binaries, size limit, line numbers);
 - the default-model messages.
+
+**Where the tests' output goes.** Only to `OLLAMA_TEST_SCRATCH` (default
+`%LOCALAPPDATA%\hive-test\scratch\ollama-tests`), never the repo: a folder per test, `<pid>-<n>-<name>`, holding a
+fake profile and projects. Before each `npm test`, the repo's `test\clean-scratch.js` removes earlier runs' folders, so
+the latest run's output stays there for debugging and the folder holds about one run's worth. It removes only folders
+the tests made (that name, with their `home\.ssh\id_ed25519` and `outside\secret.txt` stand-ins), skips any whose test
+process is still running (its pid is live and the folder changed in the last hour: Windows reuses pids), and leaves one
+it can't remove (a file still open) for the next run. Run alone from the repo root: `node test\clean-scratch.js`.

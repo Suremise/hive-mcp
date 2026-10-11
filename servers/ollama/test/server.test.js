@@ -5,14 +5,15 @@ const test = require('node:test')
 const assert = require('assert')
 const fs = require('fs')
 const http = require('http')
-const os = require('os')
 const path = require('path')
 const { spawn } = require('child_process')
 const { createInterface } = require('readline')
 const { pathToFileURL } = require('url')
 
 const SERVER = path.join(__dirname, '..', 'server.js')
-const BASE = process.env.OLLAMA_TEST_SCRATCH || path.join(process.env.LOCALAPPDATA || os.tmpdir(), 'hive-test', 'scratch', 'ollama-tests')
+// OLLAMA_TEST_SCRATCH, else %LOCALAPPDATA%\hive-test\scratch\ollama-tests; the repo's test/clean-scratch.js clears
+// earlier runs' folders there before `npm test`.
+const BASE = require('../../../test/clean-scratch').TARGETS.ollama.base
 
 /** A fake Ollama: /api/tags lists one model; /api/chat answers with the prompt it was sent, so tests see the files. */
 let ollama
