@@ -10,7 +10,8 @@
  * --hive (or HIVE_REPO) is a built checkout of the Hive repo. --previous defaults to the newest Hive-Setup-*.exe in <hive>\dist other than --installer. Both installers must sit
  * under one folder (not a drive root), which is mapped read-only at C:\build. The Hive repo gives Hive's own
  * playwright-core and its e2e fake CLIs (read-only); Node is this one's folder.
- * Exit code: 0 all checks passed, 1 a check failed (or a Sandbox's cleanup wasn't confirmed), 2 not run.
+ * Exit code: 0 all checks passed, 1 a check failed (or a Sandbox's cleanup wasn't confirmed), 2 not run (also when the
+ * Sandbox's App Control policy, e.g. Smart App Control, refuses an installer: see NotRun).
  */
 const fs = require('fs')
 const os = require('os')
@@ -18,11 +19,29 @@ const path = require('path')
 const crypto = require('crypto')
 const { server } = require('../client')
 const { stopConfirmed, list, hostProblem } = require('../wsb')
-const { evaluate, markdown, KINDS } = require('./report')
+const { evaluate, markdown, verdict, KINDS } = require('./report')
 
 const versionOf = f => (/Hive-Setup-(\d+\.\d+\.\d+(?:-[\w.]+)?)\.exe$/i.exec(f) || [])[1]
 const cmpVersion = (a, b) => { const x = a.split(/[.-]/).map(Number); const y = b.split(/[.-]/).map(Number); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i]; return 0 }
 const isInside = (child, parent) => { const r = path.relative(parent, child); return !!r && !r.startsWith('..') && !path.isAbsolute(r) }
+
+// Windows refusing an installer under an App Control policy: in a Sandbox where Smart App Control enforces, every
+// unsigned installer. Nothing after it can be checked, so that Sandbox's scenarios are NOT RUN with one reason rather
+// than dozens of failures. The policy is only ever read (reg query), never changed, not even in the throwaway Sandbox.
+const BLOCKED = /Application Control policy has blocked this file/i
+const SAC_KEY = 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\CI\\Policy'
+/** A Sandbox's scenarios that couldn't run: message is the reason (the same for every installer), installer the file. */
+class NotRun extends Error {
+  constructor(reason, installer) { super(reason); this.installer = installer }
+}
+/** Smart App Control's state from `reg query` output: 0 off, 1 on (enforcing), 2 evaluation; null if not read. */
+const sacState = text => { const m = /VerifiedAndReputablePolicyState\s+REG_DWORD\s+0x([0-9a-f]+)/i.exec(text || ''); return m ? parseInt(m[1], 16) : null }
+/** Why the run can't check an installer the policy refused, in one line. */
+function blockedReason(sac) {
+  return sac === 1
+    ? 'Smart App Control in the Sandbox blocks unsigned installers (VerifiedAndReputablePolicyState = 1): sign the installer, or check on a machine without Smart App Control.'
+    : `An Application Control policy in the Sandbox blocks the installer (Smart App Control state: ${sac ?? 'unknown'}): sign the installer, or check on a machine without that policy.`
+}
 
 // Logging never throws: a full disk or a locked log must not stop a cleanup (found in review).
 let logFile = null
@@ -139,6 +158,18 @@ function steps(srv, ctx) {
   }
   const ps = (scenario, what, script, args, o) => run(scenario, what, `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:\\wsb-mcp\\hive\\${script} ${args}`, o)
   const drive = (scenario, what, step, prefix) => run(scenario, what, `C:\\tools\\node\\node.exe C:\\wsb-mcp\\hive\\drive.cjs ${step} ${prefix}`, { timeoutSec: 420 })
+  /** Smart App Control's state in this Sandbox, read only; logged and kept for the reason if an install is blocked. */
+  const readSac = async () => {
+    const r = await srv.call('sandbox_run', { command: `reg.exe query ${SAC_KEY} /v VerifiedAndReputablePolicyState`, as: 'user', timeoutSec: 30 }).catch(e => ({ text: e.message }))
+    ctx.sac = sacState(r.text)
+    log(`Smart App Control in the Sandbox: ${ctx.sac ?? 'not read'}`)
+  }
+  /** Runs an installer through install.ps1; one refused by an App Control policy ends this Sandbox's scenarios: NOT RUN. */
+  const install = async (scenario, what, exe, args, o) => {
+    const r = await ps(scenario, what, 'install.ps1', `-Exe "${exe}" ${args}`, o)
+    if (BLOCKED.test(r.text)) throw new NotRun(blockedReason(ctx.sac), exe.split('\\').pop())
+    return r
+  }
   const desktop = async (scenario, name) => {
     const r = await srv.call('sandbox_screenshot')
     const img = r.content.find(c => c.type === 'image')
@@ -159,7 +190,7 @@ function steps(srv, ctx) {
       try { ctx.files[key] = JSON.parse(r.text.slice(r.text.indexOf('\n') + 1).replace(/^\uFEFF/, '')) } catch (e) { ctx.files[`${key}:error`] = `unreadable: ${e.message}` }
     }
   }
-  return { run, ps, drive, desktop, collect, record }
+  return { run, ps, drive, desktop, collect, record, readSac, install }
 }
 
 const SCENARIO_OF = { fresh: 1, upgrade: 4 }
@@ -189,13 +220,14 @@ async function main(argv) {
     WSB_TOOL_DIRS: [`node=${path.dirname(process.execPath)}`, `playwright=${path.join(p.hive, 'node_modules', 'playwright-core')}`, `hive-tests=${path.join(p.hive, 'tests')}`].join(';'),
     WSB_SANDBOX_ROOT: path.join(p.report, 'sandbox')
   }
-  const ctx = { report: p.report, files: {}, shots: [], steps: [], timings: {}, leftRunning: [] }
+  const ctx = { report: p.report, files: {}, shots: [], steps: [], timings: {}, leftRunning: [], notRun: {}, sac: null }
   const start = { build: p.root, network: false, session: true, tools: ['node', 'playwright', 'hive-tests'], maxMinutes: 30 }
   const time = async (k, fn) => { const t = Date.now(); const r = await fn(); ctx.timings[k] = `${((Date.now() - t) / 1000).toFixed(1)} s`; return r }
   const bodies = {
     fresh: async srv => {
       const s = steps(srv, ctx)
-      await time('1. silent install', () => s.ps(1, '1. install', 'install.ps1', `-Exe "${p.guestInstaller}" -Arguments "/S" -Name s1`, { timeoutSec: 300 }))
+      await s.readSac()
+      await time('1. silent install', () => s.install(1, '1. install', p.guestInstaller, '-Arguments "/S" -Name s1', { timeoutSec: 300 }))
       await s.desktop(1, 's1-desktop')
       await s.run(1, '1. open Installed apps', 'start "" ms-settings:appsfeatures', { timeoutSec: 30 })
       await new Promise(r => setTimeout(r, 6000))
@@ -210,19 +242,28 @@ async function main(argv) {
     },
     upgrade: async srv => {
       const s = steps(srv, ctx)
-      await time('4. previous release install', () => s.ps(4, '4. install previous', 'install.ps1', `-Exe "${p.guestPrevious}" -Arguments "/S" -Name s4-prev`, { timeoutSec: 300 }))
+      await s.readSac()
+      await time('4. previous release install', () => s.install(4, '4. install previous', p.guestPrevious, '-Arguments "/S" -Name s4-prev', { timeoutSec: 300 }))
       await s.drive(4, '4. change settings', 'mark', 's4-mark')
       await s.desktop(4, 's4-desktop-before')
-      await time('4. update install (--updated /S --force-run)', () => s.ps(4, '4. install new', 'install.ps1', `-Exe "${p.guestInstaller}" -Arguments "--updated /S --force-run" -Name s4-new`, { timeoutSec: 300 }))
+      await time('4. update install (--updated /S --force-run)', () => s.install(4, '4. install new', p.guestInstaller, '-Arguments "--updated /S --force-run" -Name s4-new', { timeoutSec: 300 }))
       await s.drive(4, '4. after the upgrade', 'after-upgrade', 's4-after')
       await s.desktop(4, 's4-desktop-after')
       await s.collect(4, ['s4'])
     }
   }
   for (const kind of p.ran) {
+    const before = ctx.steps.length
     try {
       await inSandbox(env, kind, start, bodies[kind], [p.root])
     } catch (e) {
+      if (e instanceof NotRun) {
+        // Its steps so far go too: the scenarios weren't checked, so nothing in them passed or failed.
+        ctx.steps.splice(before)
+        ctx.notRun[kind] = { reason: e.message, installer: e.installer }
+        log(`${kind}: NOT RUN: Windows refused ${e.installer}. ${e.message}`)
+        continue
+      }
       log(`${kind}: ERROR: ${e.message}`)
       ctx.steps.push({ scenario: SCENARIO_OF[kind], what: `${kind} Sandbox`, ok: false, detail: e.message })
       if (e.leftRunning) ctx.leftRunning.push(e.leftRunning)
@@ -244,17 +285,19 @@ async function main(argv) {
     timings: ctx.timings,
     shots: ctx.shots,
     steps: ctx.steps,
-    leftRunning: ctx.leftRunning
+    leftRunning: ctx.leftRunning,
+    notRun: ctx.notRun,
+    smartAppControl: ctx.sac
   }
   const result = evaluate(meta, ctx.files)
   fs.writeFileSync(path.join(p.report, 'report.json'), JSON.stringify(result, null, 2))
   fs.writeFileSync(path.join(p.report, 'report.md'), markdown(result))
-  log(`${result.failed ? 'FAILED' : 'PASSED'}: ${result.passed}/${result.checks.length} checks; ${path.join(p.report, 'report.md')}`)
-  return result.failed ? 1 : 0
+  log(`${verdict(result)}; ${path.join(p.report, 'report.md')}`)
+  return result.failed ? 1 : result.notRun.length ? 2 : 0
 }
 
 if (require.main === module) {
   main(process.argv.slice(2)).then(code => { process.exitCode = code }, e => { log('ERROR:', e.stack || e); process.exitCode = 2 })
 }
 // For tests.
-module.exports = { buildRoot, plan, inSandbox, setLogSink: fn => { logSink = fn } }
+module.exports = { buildRoot, plan, inSandbox, sacState, blockedReason, setLogSink: fn => { logSink = fn } }

@@ -10,6 +10,8 @@
  *   start: true        start fails
  *   others: [ids]      Sandboxes not started here, always listed
  *   session: n         exec as ExistingLogin fails until n such calls were made
+ *   guest: [{ match, exit, stdout, stderr }]   a guest command matching the regex `match` (the first that does) gets
+ *                      that exit code and output instead of being simulated below
  * Guest commands given to the run wrapper (base64 in -B64) are simulated:
  *   echo <text> | exit <n> | big <bytes> | err <text> | cwd | write <rel path> <text> | link <name> <target> |
  *   hang | hang-nopid | hang-pid <text> | wrapper-fails
@@ -87,7 +89,11 @@ const r = withState(s => {
     const run = /run\.ps1 -Name (\.run-\d+) -Shell (\w+) -B64 (\S+) -Cwd "([^"]*)"$/.exec(line)
     // Like the real wrapper: a backslash before a closing quote escapes it, and PowerShell never starts the script.
     if (/run\.ps1/.test(line) && (!run || /\\"/.test(line))) return { code: 0, stdout: { ExitCode: 1 } }
-    if (run) return { guest: { out: s.out[id], name: run[1], command: Buffer.from(run[3], 'base64').toString('utf8'), cwd: run[4] } }
+    if (run) {
+      const command = Buffer.from(run[3], 'base64').toString('utf8')
+      const scripted = (s.fail.guest || []).find(g => new RegExp(g.match, 'i').test(command))
+      return { guest: { out: s.out[id], name: run[1], command, cwd: run[4], scripted } }
+    }
     return { stdout: { ExitCode: 0 } }
   }
   return { code: 1, stderr: `stub: unknown command ${cmd}` }
@@ -95,8 +101,16 @@ const r = withState(s => {
 
 if (r.guest) {
   // The wrapper's side of a run, outside the lock (a hang must not hold it).
-  const { out: dir, name, command, cwd } = r.guest
+  const { out: dir, name, command, cwd, scripted } = r.guest
   const w = (ext, t) => fs.writeFileSync(path.join(dir, name + ext), t)
+  if (scripted) {
+    w('.pid', '4242')
+    if (scripted.stdout) w('.stdout.txt', scripted.stdout)
+    if (scripted.stderr) w('.stderr.txt', scripted.stderr)
+    w('.exit', String(scripted.exit || 0))
+    out({ ExitCode: scripted.exit || 0 })
+    process.exit(0)
+  }
   const [verb, ...rest] = command.split(' ')
   const text = rest.join(' ')
   if (verb === 'wrapper-fails') { w('.error.txt', 'Start-Process : This command cannot be run.'); out({ ExitCode: 1 }); process.exit(0) }

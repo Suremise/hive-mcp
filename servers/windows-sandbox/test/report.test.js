@@ -2,7 +2,7 @@
 // the Markdown it writes.
 const test = require('node:test')
 const assert = require('assert')
-const { evaluate, markdown, REQUIRED } = require('../scenarios/report')
+const { evaluate, markdown, verdict, REQUIRED } = require('../scenarios/report')
 
 const HOME = 'C:\\Users\\WDAGUtilityAccount'
 const lnk = (name, folder) => ({ name, folder: `${HOME}\\${folder}`, target: `${HOME}\\AppData\\Local\\Programs\\Hive\\Hive.exe` })
@@ -124,4 +124,34 @@ test('only the scenarios that ran are checked', () => {
   const r = evaluate(meta({ ran: ['fresh'], shots: REQUIRED.fresh.shots }), f)
   assert.strictEqual(r.failed, 0, JSON.stringify(failedNames(r)))
   assert.ok(!r.checks.some(c => c.scenario === 4))
+})
+
+const SAC = { reason: 'Smart App Control in the Sandbox blocks unsigned installers (VerifiedAndReputablePolicyState = 1): sign the installer, or check on a machine without Smart App Control.' }
+
+test('both kinds not run: NOT RUN with the reason once, no checks, no failure (#611)', () => {
+  const r = evaluate(meta({ shots: [], steps: [], notRun: { fresh: { ...SAC, installer: 'Hive-Setup-0.6.0.exe' }, upgrade: { ...SAC, installer: 'Hive-Setup-0.5.1.exe' } } }), {})
+  assert.strictEqual(r.failed, 0)
+  assert.strictEqual(r.checks.length, 0)
+  assert.strictEqual(verdict(r), `NOT RUN: ${SAC.reason}`)
+  const md = markdown(r)
+  assert.match(md, /- Scenarios run: none\./)
+  assert.strictEqual(md.split(SAC.reason).length - 1, 2) // the verdict and the Not run section
+})
+
+test('one kind not run and the other passing: NOT RUN, saying the other checks passed', () => {
+  const f = good()
+  for (const k of Object.keys(f)) if (!k.startsWith('s4')) delete f[k]
+  const r = evaluate(meta({ shots: REQUIRED.upgrade.shots, steps: [], notRun: { fresh: { ...SAC, installer: 'Hive-Setup-0.6.0.exe' } } }), f)
+  assert.strictEqual(r.failed, 0, JSON.stringify(failedNames(r)))
+  assert.ok(r.checks.length && r.checks.every(c => c.scenario === 4))
+  assert.strictEqual(verdict(r), `NOT RUN: ${SAC.reason} (not run: fresh; the other ${r.checks.length} checks passed)`)
+})
+
+test('one kind not run and the other failing: FAILED, naming what was not run', () => {
+  const f = good()
+  for (const k of Object.keys(f)) if (!k.startsWith('s4')) delete f[k]
+  f['s4-new-run'].exitCode = 2
+  const r = evaluate(meta({ shots: REQUIRED.upgrade.shots, steps: [], notRun: { fresh: { ...SAC, installer: 'Hive-Setup-0.6.0.exe' } } }), f)
+  assert.ok(r.failed > 0)
+  assert.match(verdict(r), /^FAILED: \d+ of \d+ checks; not run: fresh$/)
 })

@@ -2,13 +2,14 @@
 // (wsb.exe stubbed, launching nothing).
 const test = require('node:test')
 const assert = require('assert')
+const fs = require('fs')
 const path = require('path')
 const { spawnSync } = require('child_process')
 const { scratch, STUB } = require('./helpers')
 
 process.env.WSB_STUB = STUB
 process.env.WSB_STOP_RETRY_MS = '10'
-const { buildRoot, plan, inSandbox, setLogSink } = require('../scenarios/hive-checks')
+const { buildRoot, plan, inSandbox, sacState, blockedReason, setLogSink } = require('../scenarios/hive-checks')
 const RUNNER = path.join(__dirname, '..', 'scenarios', 'hive-checks.js')
 
 test('build folder: the common folder of both installers; different drives and the drive root refused (no endless climb)', () => {
@@ -69,6 +70,61 @@ test('inSandbox: logging failing and every stop failing → the server is still 
     setLogSink(line => console.log(line))
     s.patch(x => { x.fail.stop = 0; x.sandboxes = [] })
   }
+})
+
+const BLOCKED_ERR = 'Start-Process : This command cannot be run due to the error: An Application Control policy has blocked this file.\r\nAt C:\\wsb-mcp\\hive\\install.ps1:17 char:6'
+const SAC_ON = '\r\nHKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\CI\\Policy\r\n    VerifiedAndReputablePolicyState    REG_DWORD    0x1\r\n'
+
+/** Runs hive-checks.js on the stub with these guest commands scripted: a fake Hive repo, two installers. */
+function runChecks(name, guest) {
+  const s = scratch(name, { guest })
+  const hive = path.join(s.dir, 'hive')
+  for (const d of ['dist', 'node_modules/playwright-core', 'tests']) fs.mkdirSync(path.join(hive, d), { recursive: true })
+  // Both installers under builds\hive, the build folder (not the scratch folder, which holds the fake profile).
+  const previous = path.join(s.dir, 'builds/hive/previous/Hive-Setup-0.5.1.exe')
+  fs.mkdirSync(path.dirname(previous))
+  fs.writeFileSync(previous, 'MZ')
+  const report = path.join(s.dir, 'report')
+  const r = spawnSync(process.execPath, [RUNNER, '--installer', path.join(s.dir, 'builds/hive/Hive-Setup-0.6.0.exe'), '--previous', previous, '--hive', hive, '--report', report],
+    { env: { ...s.env, WSB_ALLOWED_ROOTS: '' }, encoding: 'utf8', timeout: 120_000 })
+  const guests = (s.read().calls || []).filter(c => c[0] === 'exec').map(c => /-B64 (\S+)/.exec(c[c.indexOf('-c') + 1])).filter(Boolean).map(m => Buffer.from(m[1], 'base64').toString('utf8'))
+  return { s, r, report, guests, json: JSON.parse(fs.readFileSync(path.join(report, 'report.json'), 'utf8')), md: fs.readFileSync(path.join(report, 'report.md'), 'utf8') }
+}
+
+test('Smart App Control blocking the installers → one NOT RUN line with the reason, exit 2, no failed checks (#611)', () => {
+  const { s, r, json, md, guests } = runChecks('runner-sac-blocked', [
+    { match: 'install\\.ps1', exit: 1, stderr: BLOCKED_ERR },
+    { match: '^reg\\.exe query', stdout: SAC_ON }
+  ])
+  assert.strictEqual(r.status, 2, r.stdout + r.stderr)
+  const lines = r.stdout.split('\n').filter(l => /NOT RUN|FAILED|PASSED/.test(l))
+  assert.match(lines.at(-1), /\] NOT RUN: Smart App Control in the Sandbox blocks unsigned installers \(VerifiedAndReputablePolicyState = 1\): sign the installer, or check on a machine without Smart App Control\.; .*report\.md$/)
+  assert.doesNotMatch(r.stdout, /FAILED/)
+  assert.deepStrictEqual(json.notRun.map(n => [n.kind, n.installer]), [['fresh', 'Hive-Setup-0.6.0.exe'], ['upgrade', 'Hive-Setup-0.5.1.exe']])
+  assert.strictEqual(json.failed, 0)
+  assert.strictEqual(json.checks.length, 0)
+  assert.strictEqual(json.meta.smartAppControl, 1)
+  assert.match(md, /^\*\*NOT RUN: Smart App Control in the Sandbox blocks unsigned installers \(VerifiedAndReputablePolicyState = 1\): sign the installer, or check on a machine without Smart App Control\.\*\* · /m)
+  assert.match(md, /## Not run[\s\S]*- \*\*fresh\*\*: Windows refused `Hive-Setup-0\.6\.0\.exe`\.\n- \*\*upgrade\*\*: Windows refused `Hive-Setup-0\.5\.1\.exe`\./)
+  assert.doesNotMatch(md, /FAIL/)
+  // Nothing ran after the blocked install in either Sandbox, and the policy was only ever read.
+  assert.strictEqual(guests.filter(g => /install\.ps1/.test(g)).length, 2)
+  assert.ok(!guests.some(g => /drive\.cjs/.test(g)), guests.join('\n'))
+  assert.deepStrictEqual(guests.filter(g => /CI\\Policy|SmartAppControl|VerifiedAndReputable/i.test(g)).map(g => g.split(' ').slice(0, 2).join(' ')), ['reg.exe query', 'reg.exe query'])
+  assert.deepStrictEqual(s.read().sandboxes, [])
+})
+
+test('an install failing any other way is still a failed check, not NOT RUN', () => {
+  const { r, json } = runChecks('runner-install-fails', [{ match: 'install\\.ps1', exit: 1, stderr: 'Start-Process : The system cannot find the file specified.' }])
+  assert.strictEqual(r.status, 1, r.stdout + r.stderr)
+  assert.deepStrictEqual(json.notRun, [])
+  assert.ok(json.checks.some(c => c.name === 'Step: 1. install' && !c.ok))
+})
+
+test('the policy state: parsed from reg query, unknown when it is not there', () => {
+  assert.strictEqual(sacState(SAC_ON), 1)
+  assert.strictEqual(sacState('ERROR: The system was unable to find the specified registry key or value.'), null)
+  assert.match(blockedReason(null), /^An Application Control policy in the Sandbox blocks the installer \(Smart App Control state: unknown\)/)
 })
 
 test('inSandbox: the stop failing but the fallback succeeding → cleanup confirmed', async () => {

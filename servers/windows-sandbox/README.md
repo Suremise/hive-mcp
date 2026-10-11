@@ -308,8 +308,21 @@ node scenarios\hive-checks.js --installer "<Hive repo>\dist\<folder>\Hive-Setup-
   - `report.md` (pass or fail per check, versions, timings, notes);
   - `report.json` (with every fact collected);
   - the screenshots, and `run.log`.
-- **Exit codes:** 0 all passed; 1 a check failed; 2 not run (bad options, the Sandbox unavailable, or another one
-  running: see `--wait-min`).
+- **Exit codes:** 0 all passed; 1 a check failed; 2 not run (bad options, the Sandbox unavailable, another one
+  running (see `--wait-min`), or an installer blocked, below).
+- **NOT RUN: an installer blocked.** If an App Control policy in the Sandbox refuses an installer ("An Application
+  Control policy has blocked this file"), that Sandbox's scenarios are **not run**. This happens when Smart App
+  Control enforces in the Sandbox, which blocks every unsigned installer. Nothing after the install could be checked,
+  so the report doesn't list dozens of failures that all have this one cause. Instead it says `NOT RUN` with one
+  reason, lists which installer each scenario couldn't install, and leaves those checks out; the exit code is 2.
+  - **Not a pass or a failure:** NOT RUN says nothing about the build. Sign the installer, or run the checks on a
+    machine without Smart App Control.
+  - **Mixed results:** if the other Sandbox's checks ran and all passed, the verdict is still NOT RUN. If any of them
+    failed, it is FAILED (exit 1), naming what wasn't run.
+  - **Read only:** the runner reads Smart App Control's state in the Sandbox (`reg query`
+    `HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy` `VerifiedAndReputablePolicyState`: 0 off, 1 on, 2 evaluation)
+    for the reason and `report.json` → `meta.smartAppControl`. It never turns Smart App Control or any other security
+    setting off, not even in the throwaway Sandbox.
 - **It passes only with full coverage:**
   - every scenario asked for ran;
   - every step (each install, driver run, screenshot and collect) succeeded;

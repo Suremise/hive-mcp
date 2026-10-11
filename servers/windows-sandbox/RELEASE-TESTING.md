@@ -20,6 +20,10 @@ node <this repo>\servers\windows-sandbox\scenarios\hive-checks.js `
   sign-in or credential goes into the Sandbox. Whatever needs a real CLI stays with the hand-run tests.
 - **One Sandbox at a time** runs on the machine. If another one is running, the run says `NOT RUN` (exit 2): wait, or
   pass `--wait-min 30`. It never stops a Sandbox it didn't start.
+- **Smart App Control** in the Sandbox blocks an unsigned installer. Then the run says `NOT RUN` (exit 2) with that
+  reason, rather than failing every check. That's not a release finding: the build wasn't checked. Sign the
+  installer, or run the checks on a machine without Smart App Control. Never turn it off to get a run through (see
+  the README's "NOT RUN: an installer blocked").
 - **Attach the report to the release:**
   - the verdict line and any failed checks;
   - the path of the report folder (`report.md`, `report.json`, the screenshots).
