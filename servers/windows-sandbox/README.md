@@ -233,7 +233,8 @@ below don't rely on that; the smoke test checks it so a Windows change is notice
 From the repo root, `npm test` runs every automated test below (`wsb.exe` stubbed, about a minute). From this folder:
 
 ```powershell
-node --test test\roots.test.js test\confine.test.js test\wsb.test.js test\server.test.js test\watchdog.test.js test\smoke-faults.test.js test\report.test.js test\hive-checks.test.js test\compare.test.js
+node test\clean-scratch.js      # npm test does this first: clears earlier runs' scratch (below)
+node --test test\roots.test.js test\confine.test.js test\wsb.test.js test\server.test.js test\watchdog.test.js test\smoke-faults.test.js test\report.test.js test\hive-checks.test.js test\compare.test.js test\clean-scratch.test.js
 node test\smoke.js --runs 3     # real Sandbox; skips cleanly where it's unavailable or another one is running
 ```
 
@@ -258,6 +259,7 @@ node test\smoke.js --runs 3     # real Sandbox; skips cleanly where it's unavail
   stop failing): every Sandbox it starts is stopped, or named in `smoke.json` → `leftRunning` with a non-zero exit.
 - `report.test.js`, `compare.test.js`, `hive-checks.test.js`: the example consumer below (its report, its
   comparison, and its runner's options and cleanup).
+- `clean-scratch.test.js`: the scratch cleanup below.
 - `smoke.js`, against a real Sandbox:
   - start, then run as user and as system;
   - the build folder is read-only, the network is off, and PowerShell errors come back as plain text;
@@ -269,6 +271,13 @@ node test\smoke.js --runs 3     # real Sandbox; skips cleanly where it's unavail
 
   Every Sandbox it starts gets a fallback stop in a `finally`. Scratch goes to `WSB_TEST_SCRATCH` (default under
   `%LOCALAPPDATA%\hive-test\scratch`).
+
+**Where the tests' output goes.** The automated tests write only to `WSB_TEST_SCRATCH` (default
+`%LOCALAPPDATA%\hive-test\scratch\wsb-mcp-tests`), never the repo: a folder per test, `<pid>-<n>-<name>`, with its
+fake profile, builds, sandbox runs and stub state. Before each `npm test`, `test\clean-scratch.js` removes earlier
+runs' folders, so the latest run's output stays there for debugging and the folder holds about one run's worth. It
+removes only folders the tests made (that name, with their `stub.json`), skips any whose test process is still
+running, and leaves one it can't remove (a file still open) for the next run.
 
 ## Example consumer: Hive's release checks
 

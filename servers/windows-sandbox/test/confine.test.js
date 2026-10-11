@@ -92,6 +92,7 @@ test('a file larger than maxBytes is read only up to the cap (bytes read from di
     assert.strictEqual(disk, 100_000)
   } finally {
     fs.readSync = orig
+    fs.rmSync(path.join(out, 'big.bin'), { force: true }) // 200 MB on disk: not worth keeping for debugging
   }
 })
 
