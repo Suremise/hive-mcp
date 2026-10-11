@@ -17,7 +17,7 @@
   },
   "scripts": {
     "pretest": "node test/clean-scratch.js",
-    "test": "node --test test/shared.test.js test/clean-scratch.test.js servers/ollama/test/server.test.js servers/windows-sandbox/test/roots.test.js servers/windows-sandbox/test/confine.test.js servers/windows-sandbox/test/wsb.test.js servers/windows-sandbox/test/server.test.js servers/windows-sandbox/test/watchdog.test.js servers/windows-sandbox/test/smoke-faults.test.js servers/windows-sandbox/test/report.test.js servers/windows-sandbox/test/hive-checks.test.js servers/windows-sandbox/test/compare.test.js",
+    "test": "node --test test/shared.test.js test/clean-scratch.test.js test/line-endings.test.js servers/ollama/test/server.test.js servers/windows-sandbox/test/roots.test.js servers/windows-sandbox/test/confine.test.js servers/windows-sandbox/test/wsb.test.js servers/windows-sandbox/test/server.test.js servers/windows-sandbox/test/watchdog.test.js servers/windows-sandbox/test/smoke-faults.test.js servers/windows-sandbox/test/report.test.js servers/windows-sandbox/test/hive-checks.test.js servers/windows-sandbox/test/compare.test.js",
     "test:smoke": "node servers/windows-sandbox/test/smoke.js",
     "pack": "node scripts/pack.mjs"
   }
