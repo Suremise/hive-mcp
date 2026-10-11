@@ -37,3 +37,13 @@ test('this process counts as running with the default check', () => {
   fs.writeFileSync(path.join(base, `${process.pid}-1-mine`, 'stub.json'), '{}')
   assert.deepStrictEqual(cleanScratch(base), { removed: 0, running: 1, failed: [] })
 })
+
+test('a live pid on a folder untouched for over an hour is a reused pid: the folder goes', () => {
+  const base = path.join(scratch('clean-reused').dir, 'base')
+  const dir = path.join(base, `${process.pid}-1-old`)
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, 'stub.json'), '{}')
+  const later = Date.now() + 2 * 60 * 60 * 1000
+  assert.deepStrictEqual(cleanScratch(base, () => true, later), { removed: 1, running: 0, failed: [] })
+  assert.strictEqual(fs.existsSync(dir), false)
+})

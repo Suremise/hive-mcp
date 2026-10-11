@@ -277,7 +277,7 @@ node test\smoke.js --runs 3     # real Sandbox; skips cleanly where it's unavail
 fake profile, builds, sandbox runs and stub state. Before each `npm test`, `test\clean-scratch.js` removes earlier
 runs' folders, so the latest run's output stays there for debugging and the folder holds about one run's worth. It
 removes only folders the tests made (that name, with their `stub.json`), skips any whose test process is still
-running, and leaves one it can't remove (a file still open) for the next run.
+running (its pid is live and the folder changed in the last hour: Windows reuses pids), and leaves one it can't remove (a file still open) for the next run.
 
 ## Example consumer: Hive's release checks
 
