@@ -24,6 +24,7 @@ It uses only Node built-ins: no dependencies, no `npm install`. Version 1.1.0. M
 | Map each folder in `WSB_TOOL_DIRS` **read-only**. | Map your user profile, its dot-folders (`~/.ssh`, `~/.claude`, …), `AppData` and its top folders, anything under `AppData\Roaming`, or its own out folders, whatever the config says. |
 | Write to **one** fresh per-run folder (`C:\out` inside). | Write anywhere else on the host. |
 | Turn on networking for one Sandbox, only when `sandbox_start` asks for it. | Redirect the clipboard, audio, video or printers (always off). |
+| Turn **Smart App Control off inside one Sandbox**, only when `sandbox_start` asks for it (`smartAppControl: 'off'`; off by default). | Change Smart App Control or any other security setting **on the host**. |
 | Read back files from that run's out folder, as untrusted data. | Follow links out of the out folder, or read files beside it. |
 | Run `wsb.exe` and its own watchdog on the host. | Run any other program on the host, apart from one fixed PowerShell command that minimises or closes the Sandbox's own window. |
 
@@ -116,12 +117,31 @@ One installed server serves every project: the build folder must be inside the p
 
 | Tool | What it does |
 |---|---|
-| `sandbox_start({ build?, network=false, session=true, closeWindow=false, tools?, maxMinutes=30 })` | Starts one Sandbox. Maps `build` read-only at `C:\build`, each tool folder read-only at `C:\tools\<name>` (default: all configured), the server's `inside\` scripts read-only at `C:\wsb-mcp`, and one fresh writable folder at `C:\out`. With `session`, opens the Sandbox window **minimised** and waits up to 90 s for the user session (commands as the user and desktop screenshots need it). `closeWindow` closes the window once the session is up: desktop shots are then blank, window shots from a script inside still work. Refuses if `wsb list` fails, if any Sandbox is running, or if a folder isn't allowed. Replies with the id, timings, mappings, network state and deadline. |
+| `sandbox_start({ build?, network=false, session=true, closeWindow=false, tools?, maxMinutes=30, smartAppControl='keep' })` | Starts one Sandbox. Maps `build` read-only at `C:\build`, each tool folder read-only at `C:\tools\<name>` (default: all configured), the server's `inside\` scripts read-only at `C:\wsb-mcp`, and one fresh writable folder at `C:\out`. With `session`, opens the Sandbox window **minimised** and waits up to 90 s for the user session (commands as the user and desktop screenshots need it). `closeWindow` closes the window once the session is up: desktop shots are then blank, window shots from a script inside still work. `smartAppControl: 'off'` turns Smart App Control off inside this Sandbox (see "Smart App Control in the Sandbox"). Refuses if `wsb list` fails, if any Sandbox is running, or if a folder isn't allowed. Replies with the id, timings, mappings, network state, Smart App Control (when asked off) and deadline. |
 | `sandbox_run({ command, shell='cmd'\|'powershell', as='user'\|'system', timeoutSec=120, cwd? })` | Runs a command through `inside\run.ps1`, which records its PID and redirects stdout and stderr into `C:\out\.run-<n>.stdout.txt` / `.stderr.txt` (`.pid`, `.exit`, and `.error.txt` if the wrapper itself fails). Replies with the exit code, stdout and stderr (16 KB each, read capped, saying when cut). **On a timeout it kills the command inside by that PID** (`taskkill /T /F`): killing `wsb exec` alone would leave it running, and a command waiting on a dialog blocks forever. If the PID file is missing or not a valid number, it says "no PID" and `sandbox_stop` is the fallback. |
 | `sandbox_screenshot({ maxWidth=1280 })` | A desktop screenshot as the user (CopyFromScreen, scaled down, JPEG) saved as `C:\out\.shot-<n>.jpg` and returned as an image. Errors without a user session or after `closeWindow`, because the shot would be blank. |
 | `sandbox_collect({ paths?, glob?, maxBytes=256 KB, maxTotalBytes=1 MB, base64=false })` | Files from the run's out folder only. **While the Sandbox runs, only files directly in `C:\out`; files in its folders after `sandbox_stop`** (see "Reading back"). `paths` are relative to out; `glob` is matched against a listing of out (`*`, `?` within a folder, `**` across). With neither, lists the files (and, while running, the folders to collect after stop). Text comes back as text, PNG/JPEG as images, other binaries with `base64`. |
 | `sandbox_stop()` | Stops and discards it. Says "Stopped" only once `wsb list` confirms it's gone; otherwise reports **CLEANUP FAILED** with the id kept. |
 | `sandbox_status()` | What's running, for how long, the deadline, the watchdog, any unconfirmed stop, `wsb list`, and what the start-up check found. Works with the server turned off. |
+
+### Smart App Control in the Sandbox
+
+A fresh Sandbox can come up with **Smart App Control enforcing**, and then Windows refuses every unsigned program
+("An Application Control policy has blocked this file"): an unsigned installer, or a build you are still working on,
+can't be tested there at all. `sandbox_start({ smartAppControl: 'off' })` turns it off **in that Sandbox only**, so it
+can:
+- **Off by default.** Without the option (`'keep'`), the server leaves Smart App Control as Windows set it.
+- **Inside the Sandbox only, never the host.** The server sends the change as guest commands, through the run wrapper,
+  to the Sandbox it just started (`wsb exec --id <its id>`, as System inside): set
+  `HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy` `VerifiedAndReputablePolicyState` to 0, then
+  `CiTool.exe --refresh`, which takes effect at once (no reboot). The guest's registry is its own; it goes with the
+  Sandbox at `sandbox_stop`. Nothing in the server can run that change on the host.
+- **Read back, said plainly.** The server reads the value back: the reply says "Smart App Control turned OFF in this
+  Sandbox by option", or "NOT turned off" with why (unsigned installers will then still be blocked), and
+  `sandbox_status` says the same while it runs.
+- **What it costs.** The Sandbox then runs any program, signed or not, as Windows without Smart App Control would. It
+  is still the throwaway, network-off Sandbox, but a test with it on says nothing about how a signed build fares: test
+  the signed build as it ships when you have one.
 
 Errors name the cause:
 - `wsb.exe` missing (the feature isn't installed);
@@ -164,6 +184,8 @@ agent**, and off everywhere else. Starting any other agent in that project hands
 - **No real CLI, sign-in or credential goes into the Sandbox**: use fake CLIs.
 - Network is **off** unless `sandbox_start` asks for it, and the reply says when it's on. Clipboard, audio, video and
   printer redirection are always off.
+- Smart App Control is left as Windows set it unless `sandbox_start` asks for `smartAppControl: 'off'`, and then only
+  inside that Sandbox (see "Smart App Control in the Sandbox"). No security setting on the host is ever changed.
 
 **What runs on the host.** Only `wsb.exe`, and `node watchdog.js`. The one exception is the Sandbox's own connect window
 (`WindowsSandboxRemoteSession.exe`): the server minimises it after `wsb connect` and closes it for `closeWindow`, finding
@@ -253,12 +275,14 @@ node test\smoke.js --runs 3     # real Sandbox; skips cleanly where it's unavail
 - `wsb.test.js`: fail-closed `list` and stop (failed or malformed list, failing stop retried 3 times, stop exit 0 while
   still listed, list failing after stop), the config XML.
 - `server.test.js`: every tool over stdio against `test\stub-wsb.js` (guards, folder rules, run/timeout kill, collect
-  through the tool, failed cleanups, stdin close, hard kill → watchdog, restart recovery).
+  through the tool, failed cleanups, stdin close, hard kill → watchdog, restart recovery). Also `smartAppControl`: off
+  by default, its commands going only to the started Sandbox as System, read back, a change that doesn't take said
+  plainly, and that no other file of the server or the runner names the change.
 - `watchdog.test.js`: the watchdog's triggers and its fail-closed stop.
 - `smoke-faults.test.js`: `smoke.js`'s own cleanup under faults (the watchdog failing, its evidence unreadable, every
   stop failing): every Sandbox it starts is stopped, or named in `smoke.json` → `leftRunning` with a non-zero exit.
 - `report.test.js`, `compare.test.js`, `hive-checks.test.js`: the example consumer below (its report, its
-  comparison, and its runner's options and cleanup).
+  comparison, and its runner's options, its pick of the previous installer, `--smart-app-control off`, and cleanup).
 - `smoke.js`, against a real Sandbox:
   - start, then run as user and as system;
   - the build folder is read-only, the network is off, and PowerShell errors come back as plain text;
@@ -296,12 +320,13 @@ report to attach to a release, and drives this server over stdio (`client.js`), 
 ```powershell
 node scenarios\hive-checks.js --installer "<Hive repo>\dist\<folder>\Hive-Setup-<v>.exe" --hive "<Hive repo>"
      [--previous <older Hive-Setup-*.exe>] [--report <folder>] [--only fresh|upgrade] [--wait-min N]
+     [--smart-app-control off]
 ```
 
 - **The Hive repo** (`--hive`, or `HIVE_REPO`): a built checkout. It's required, and mapped read-only for
   `node_modules\playwright-core` and `tests` (the fake CLIs). Node is the host's.
 - **The installers:** `--previous` defaults to the newest `Hive-Setup-*.exe` in `<hive>\dist` other than
-  `--installer`. Both must sit under one folder, which is mapped read-only at `C:\build`. That folder can't be a
+  `--installer`, by semver: a release is newer than its prereleases (`0.9.0` over `0.9.0-rc.1` over `0.9.0-beta.1`). Both must sit under one folder, which is mapped read-only at `C:\build`. That folder can't be a
   drive root, and the two can't be on different drives; either is refused before anything starts. The runner gives
   that folder to its own copy of the server as its MCP root, so it needs no `WSB_ALLOWED_ROOTS` or MCP registration.
 - **The report** (default `%LOCALAPPDATA%\hive-test\sandbox-reports\<time>`):
@@ -315,14 +340,20 @@ node scenarios\hive-checks.js --installer "<Hive repo>\dist\<folder>\Hive-Setup-
   Control enforces in the Sandbox, which blocks every unsigned installer. Nothing after the install could be checked,
   so the report doesn't list dozens of failures that all have this one cause. Instead it says `NOT RUN` with one
   reason, lists which installer each scenario couldn't install, and leaves those checks out; the exit code is 2.
-  - **Not a pass or a failure:** NOT RUN says nothing about the build. Sign the installer, or run the checks on a
-    machine without Smart App Control.
+  - **Not a pass or a failure:** NOT RUN says nothing about the build. Sign the installer, or run the checks again
+    with `--smart-app-control off` (below).
   - **Mixed results:** if the other Sandbox's checks ran and all passed, the verdict is still NOT RUN. If any of them
     failed, it is FAILED (exit 1), naming what wasn't run.
-  - **Read only:** the runner reads Smart App Control's state in the Sandbox (`reg query`
+  - **Its state:** the runner reads Smart App Control's state in the Sandbox (`reg query`
     `HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy` `VerifiedAndReputablePolicyState`: 0 off, 1 on, 2 evaluation)
-    for the reason and `report.json` → `meta.smartAppControl`. It never turns Smart App Control or any other security
-    setting off, not even in the throwaway Sandbox.
+    for the reason and `report.json` → `meta.smartAppControl` (`{ state, option, note }`). Without the option it only
+    reads it.
+- **`--smart-app-control off`** (optional; off by default): checks an **unsigned** installer. Each Sandbox is started
+  with `smartAppControl: 'off'`, so the server turns Smart App Control off inside it, and never on the host (see
+  "Smart App Control in the Sandbox"). Before each install the runner reads the state again: if it isn't 0, that
+  Sandbox's scenarios are NOT RUN with that reason and no installer is run. The report says so plainly: the line
+  "**Smart App Control in the Sandbox: turned off by option**" in `report.md`, and `meta.smartAppControl.note`
+  "turned off by option" in `report.json`. Such a run says nothing about signing.
 - **It passes only with full coverage:**
   - every scenario asked for ran;
   - every step (each install, driver run, screenshot and collect) succeeded;

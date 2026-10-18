@@ -11,7 +11,7 @@ const { spawn } = require('child_process')
 const fs = require('fs')
 const os = require('os')
 const { join } = require('path')
-const { ID_RE, wsb, list, stopConfirmed, configXml, hostProblem, hint, connect, windowOp } = require('./wsb')
+const { ID_RE, wsb, list, stopConfirmed, configXml, hostProblem, hint, connect, windowOp, SAC_QUERY, SAC_OFF, sacState } = require('./wsb')
 const { segments, outRoot, readLive, pinRoot, readFile, listOut, globMatcher, parsePid, inside } = require('./confine')
 const { realDir, profileRefusal, rootsClient, allowedRoots } = require('./roots')
 
@@ -27,7 +27,7 @@ const MAX_COMMAND = 8000
 const KB = n => `${(n / 1024).toFixed(n < 10240 ? 1 : 0)} KB`
 const secs = ms => `${(ms / 1000).toFixed(1)} s`
 
-let run = null // the Sandbox this server started: { id, runDir, outDir, pinFd, startedAt, deadline, network, session, windowClosed, runs, shots, watchdog, timer, unconfirmed, lastStop }
+let run = null // the Sandbox this server started: { id, runDir, outDir, pinFd, startedAt, deadline, network, session, windowClosed, runs, shots, watchdog, timer, unconfirmed, lastStop, smartAppControl }
 let last = null // the last run, confirmed stopped, for sandbox_collect after stop: { id, outDir, note }
 let startPromise = null
 const recovery = [] // what the start-up check found
@@ -229,12 +229,34 @@ let recovered = Promise.resolve() // set by main()
 
 // ---------- tools ----------
 
-async function start({ build, network = false, session = true, closeWindow = false, tools, maxMinutes = 30 }) {
+/**
+ * smartAppControl: 'off': turns Smart App Control off in this run's Sandbox only, so unsigned builds can be installed
+ * (Windows refuses them while it enforces). Every command goes through runCommand, so through `wsb exec --id <the
+ * Sandbox this server started>`, as System in the guest: nothing here runs on the host. The state is then read back:
+ * the reply says it plainly, and r.smartAppControl keeps it for status. Resolves the reply's line.
+ */
+async function smartAppControlOff(r) {
+  const not = (why, state = null) => { r.smartAppControl = { asked: 'off', state }; return `Smart App Control NOT turned off (smartAppControl 'off'): ${why}. Unsigned installers will still be blocked.` }
+  for (const command of SAC_OFF) {
+    let x
+    try { x = await runCommand({ command, as: 'system', timeoutSec: 60 }) } catch (e) { return not(`${command}: ${e.message}`) }
+    if (x.isError || !/^exit 0\b/.test(x.text)) return not(`${command}: ${x.text.split('\n')[0]}`)
+  }
+  let q
+  try { q = await runCommand({ command: SAC_QUERY, as: 'system', timeoutSec: 60 }) } catch (e) { return not(`reading it back: ${e.message}`) }
+  const state = sacState(q.text)
+  if (state !== 0) return not(`read back as ${state ?? 'unreadable'} (VerifiedAndReputablePolicyState), not 0`, state)
+  r.smartAppControl = { asked: 'off', state }
+  return 'Smart App Control turned OFF in this Sandbox by option (VerifiedAndReputablePolicyState 0, read back), so unsigned installers can run. The host is not changed.'
+}
+
+async function start({ build, network = false, session = true, closeWindow = false, tools, maxMinutes = 30, smartAppControl = 'keep' }) {
   if (run) throw new Error(run.unconfirmed ? `Sandbox ${run.id}'s stop is unconfirmed: call sandbox_stop before starting another.` : `Sandbox ${run.id} is already running: call sandbox_stop first (one at a time).`)
   const problem = hostProblem()
   if (problem) throw new Error(problem)
   if (typeof network !== 'boolean' || typeof session !== 'boolean' || typeof closeWindow !== 'boolean') throw new Error('network, session and closeWindow are true or false.')
   if (!Number.isFinite(maxMinutes) || maxMinutes < 1 || maxMinutes > 240) throw new Error('maxMinutes is 1 to 240.')
+  if (!['keep', 'off'].includes(smartAppControl)) throw new Error("smartAppControl is 'keep' (default) or 'off'.")
 
   const config = configProblems()
   if (config.root) throw new Error(config.root)
@@ -290,6 +312,7 @@ async function start({ build, network = false, session = true, closeWindow = fal
     throw new Error(`Sandbox ${id} didn't run commands within ${READY_WAIT_MS / 1000} s. ${res.ok ? 'Stopped it (confirmed).' : describeStop(id, res)}`)
   }
   timings.readyMs = Date.now() - t0
+  const sacLine = smartAppControl === 'off' ? await smartAppControlOff(run) : null
 
   let sessionLine = 'No user session (session=false): run commands as system; screenshots need a session.'
   if (session) {
@@ -316,6 +339,7 @@ async function start({ build, network = false, session = true, closeWindow = fal
   return [
     `Started Sandbox ${id}, network ${network ? 'ON (outbound access from the Sandbox)' : 'off'}. Commands ready ${secs(timings.readyMs)} after start.`,
     sessionLine,
+    ...(sacLine ? [sacLine] : []),
     `Read-only: ${mapped}. Writable: C:\\out ← ${outDir}.`,
     `Stops by ${new Date(run.deadline).toLocaleTimeString()} (${maxMinutes} min) at the latest; call sandbox_stop when done.`
   ].join('\n')
@@ -487,6 +511,7 @@ async function status() {
     const up = Date.now() - run.startedAt
     lines.push(`Running: ${run.id}, up ${Math.round(up / 60_000)} min, stops by ${new Date(run.deadline).toLocaleTimeString()}; network ${run.network ? 'ON' : 'off'}; user session ${run.session.ready ? 'ready' : run.session.wanted ? 'not ready' : 'not requested'}${run.windowClosed ? ', window closed' : ''}; ${run.runs} command${run.runs === 1 ? '' : 's'} run.`)
     if (run.unconfirmed) lines.push(`UNCONFIRMED STOP: ${describeStop(run.id, run.lastStop)}`)
+    if (run.smartAppControl) lines.push(`Smart App Control: ${run.smartAppControl.state === 0 ? 'turned off in this Sandbox by option' : `asked off, but NOT off (state ${run.smartAppControl.state ?? 'unknown'})`}.`)
     lines.push(`Watchdog: ${run.watchdog?.pid && alive(run.watchdog.pid) ? `running (PID ${run.watchdog.pid})` : `NOT running${run.watchdogError ? `: ${run.watchdogError}` : ''}`}.`)
     lines.push(`Out folder: ${run.outDir}`)
   } else {
@@ -513,7 +538,8 @@ const tools = [
         session: { type: 'boolean', description: 'Open the user session (minimised window). Default true; false allows only commands as system.' },
         closeWindow: { type: 'boolean', description: 'Close the Sandbox window once the session is ready. Desktop screenshots are then blank; window shots from a script inside still work. Default false.' },
         tools: { type: 'array', items: { type: 'string' }, description: 'Tool folders to map (names from WSB_TOOL_DIRS). Default: all configured.' },
-        maxMinutes: { type: 'number', description: 'Lifetime before it is stopped automatically, 1–240. Default 30.' }
+        maxMinutes: { type: 'number', description: 'Lifetime before it is stopped automatically, 1–240. Default 30.' },
+        smartAppControl: { type: 'string', enum: ['keep', 'off'], description: "'off' turns Smart App Control off inside this Sandbox only (never on the host), so unsigned installers can run; the reply says whether it is off. Default 'keep': left as Windows set it." }
       }
     },
     run: start,

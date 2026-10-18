@@ -5,44 +5,68 @@
  * every command has a timeout. Writes a short report (report.md, report.json) with screenshots to --report.
  *
  *   node scenarios\hive-checks.js --installer <Hive-Setup-x.y.z.exe> [--previous <older installer>]
- *        --hive <Hive repo> [--report <folder>] [--only fresh|upgrade] [--wait-min N]
+ *        --hive <Hive repo> [--report <folder>] [--only fresh|upgrade] [--wait-min N] [--smart-app-control off]
  *
  * --hive (or HIVE_REPO) is a built checkout of the Hive repo. --previous defaults to the newest Hive-Setup-*.exe in <hive>\dist other than --installer. Both installers must sit
  * under one folder (not a drive root), which is mapped read-only at C:\build. The Hive repo gives Hive's own
  * playwright-core and its e2e fake CLIs (read-only); Node is this one's folder.
  * Exit code: 0 all checks passed, 1 a check failed (or a Sandbox's cleanup wasn't confirmed), 2 not run (also when the
  * Sandbox's App Control policy, e.g. Smart App Control, refuses an installer: see NotRun).
+ * --smart-app-control off: the server turns Smart App Control off inside each Sandbox (never on the host), so unsigned
+ * installers can be checked; the runner reads the state back before each install, and NOT RUN if it isn't off.
  */
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
 const crypto = require('crypto')
 const { server } = require('../client')
-const { stopConfirmed, list, hostProblem } = require('../wsb')
+const { stopConfirmed, list, hostProblem, SAC_QUERY, sacState } = require('../wsb')
 const { evaluate, markdown, verdict, KINDS } = require('./report')
 
 const versionOf = f => (/Hive-Setup-(\d+\.\d+\.\d+(?:-[\w.]+)?)\.exe$/i.exec(f) || [])[1]
-const cmpVersion = (a, b) => { const x = a.split(/[.-]/).map(Number); const y = b.split(/[.-]/).map(Number); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i]; return 0 }
+/**
+ * Semver order: major.minor.patch, then a release above its prereleases (0.9.0 > 0.9.0-rc.1 > 0.9.0-beta.1), whose
+ * dot-separated parts compare numerically when both are numbers, else as text (numbers first), the shorter first on a tie.
+ */
+function cmpVersion(a, b) {
+  const [coreA, preA] = splitVersion(a)
+  const [coreB, preB] = splitVersion(b)
+  for (let i = 0; i < 3; i++) if (coreA[i] !== coreB[i]) return coreA[i] - coreB[i]
+  if (!preA || !preB) return !preA - !preB
+  for (let i = 0; i < Math.min(preA.length, preB.length); i++) {
+    const [x, y] = [preA[i], preB[i]]
+    const [nx, ny] = [/^\d+$/.test(x), /^\d+$/.test(y)]
+    if (nx && ny) { if (Number(x) !== Number(y)) return Number(x) - Number(y) } else if (nx !== ny) return nx ? -1 : 1
+    else if (x !== y) return x < y ? -1 : 1
+  }
+  return preA.length - preB.length
+}
+function splitVersion(v) {
+  const i = v.indexOf('-')
+  return [(i < 0 ? v : v.slice(0, i)).split('.').map(Number), i < 0 ? null : v.slice(i + 1).split('.')]
+}
 const isInside = (child, parent) => { const r = path.relative(parent, child); return !!r && !r.startsWith('..') && !path.isAbsolute(r) }
 
 // Windows refusing an installer under an App Control policy: in a Sandbox where Smart App Control enforces, every
 // unsigned installer. Nothing after it can be checked, so that Sandbox's scenarios are NOT RUN with one reason rather
-// than dozens of failures. The policy is only ever read (reg query), never changed, not even in the throwaway Sandbox.
+// than dozens of failures. The runner itself only reads the policy (reg query); with --smart-app-control off it asks
+// the server to turn it off inside the Sandbox (sandbox_start's smartAppControl), never on the host.
 // PowerShell wraps the error at the console width, anywhere in the text (" \r\n" seen mid-sentence): match without spaces.
 const blocked = text => /AnApplicationControlpolicyhasblockedthisfile/i.test(String(text).replace(/\s+/g, ''))
-const SAC_KEY = 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\CI\\Policy'
 /** A Sandbox's scenarios that couldn't run: message is the reason (the same for every installer), installer the file. */
 class NotRun extends Error {
   constructor(reason, installer) { super(reason); this.installer = installer }
 }
-/** Smart App Control's state from `reg query` output: 0 off, 1 on (enforcing), 2 evaluation; null if not read. */
-const sacState = text => { const m = /VerifiedAndReputablePolicyState\s+REG_DWORD\s+0x([0-9a-f]+)/i.exec(text || ''); return m ? parseInt(m[1], 16) : null }
 /** Why the run can't check an installer the policy refused, in one line. */
 function blockedReason(sac) {
   return sac === 1
-    ? 'Smart App Control in the Sandbox blocks unsigned installers (VerifiedAndReputablePolicyState = 1): sign the installer, or check on a machine without Smart App Control.'
+    ? 'Smart App Control in the Sandbox blocks unsigned installers (VerifiedAndReputablePolicyState = 1): sign the installer, or run the checks with --smart-app-control off.'
     : `An Application Control policy in the Sandbox blocks the installer (Smart App Control state: ${sac ?? 'unknown'}): sign the installer, or check on a machine without that policy.`
 }
+/** Why the run can't check an installer when --smart-app-control off didn't take, in one line. */
+const notOffReason = sac => `Smart App Control was to be turned off in the Sandbox (--smart-app-control off), but it reads ${sac ?? 'unknown'} (VerifiedAndReputablePolicyState), not 0: the installers weren't run.`
+/** report.json → meta.smartAppControl: the state read in the Sandbox, and whether the option changed it. */
+const sacMeta = (state, off) => ({ state, option: off ? 'off' : 'keep', note: !off ? 'left as Windows set it (read only)' : state === 0 ? 'turned off by option' : 'asked off by option, but not off' })
 
 // Logging never throws: a full disk or a locked log must not stop a cleanup (found in review).
 let logFile = null
@@ -70,6 +94,8 @@ function plan(argv) {
   const opt = (n, d) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : d }
   const only = opt('--only')
   if (only !== undefined && !KINDS.includes(only)) throw new Error(`--only is ${KINDS.join(' or ')}, not "${only}"`)
+  const sac = opt('--smart-app-control')
+  if (argv.includes('--smart-app-control') && sac !== 'off') throw new Error(`--smart-app-control takes only "off" (turned off inside the Sandbox; leave it out to keep Windows' setting), not ${sac === undefined ? 'nothing' : `"${sac}"`}`)
   const hiveOpt = opt('--hive', process.env.HIVE_REPO)
   if (!hiveOpt) throw new Error('--hive <Hive repo> (or HIVE_REPO) is required: it gives the previous installers, playwright-core and the fake CLIs')
   const hive = path.resolve(hiveOpt)
@@ -101,7 +127,8 @@ function plan(argv) {
     guestInstaller: guest(installer),
     guestPrevious: upgrade ? guest(previous) : null,
     report: path.resolve(opt('--report', path.join(process.env.LOCALAPPDATA, 'hive-test', 'sandbox-reports', stamp))),
-    waitMin: Number(opt('--wait-min', 0))
+    waitMin: Number(opt('--wait-min', 0)),
+    sacOff: sac === 'off'
   }
 }
 
@@ -161,12 +188,19 @@ function steps(srv, ctx) {
   const drive = (scenario, what, step, prefix) => run(scenario, what, `C:\\tools\\node\\node.exe C:\\wsb-mcp\\hive\\drive.cjs ${step} ${prefix}`, { timeoutSec: 420 })
   /** Smart App Control's state in this Sandbox, read only; logged and kept for the reason if an install is blocked. */
   const readSac = async () => {
-    const r = await srv.call('sandbox_run', { command: `reg.exe query ${SAC_KEY} /v VerifiedAndReputablePolicyState`, as: 'user', timeoutSec: 30 }).catch(e => ({ text: e.message }))
+    const r = await srv.call('sandbox_run', { command: SAC_QUERY, as: 'user', timeoutSec: 30 }).catch(e => ({ text: e.message }))
     ctx.sac = sacState(r.text)
-    log(`Smart App Control in the Sandbox: ${ctx.sac ?? 'not read'}`)
+    log(`Smart App Control in the Sandbox: ${ctx.sac ?? 'not read'}${ctx.sacOff ? ' (to be off by option)' : ''}`)
   }
-  /** Runs an installer through install.ps1; one refused by an App Control policy ends this Sandbox's scenarios: NOT RUN. */
+  /**
+   * Runs an installer through install.ps1; one refused by an App Control policy ends this Sandbox's scenarios: NOT RUN.
+   * With --smart-app-control off, the state is read again first and must be 0, or the installer isn't run: NOT RUN.
+   */
   const install = async (scenario, what, exe, args, o) => {
+    if (ctx.sacOff) {
+      await readSac()
+      if (ctx.sac !== 0) throw new NotRun(notOffReason(ctx.sac), exe.split('\\').pop())
+    }
     const r = await ps(scenario, what, 'install.ps1', `-Exe "${exe}" ${args}`, o)
     if (blocked(r.text)) throw new NotRun(blockedReason(ctx.sac), exe.split('\\').pop())
     return r
@@ -204,7 +238,7 @@ async function main(argv) {
   logFile = path.join(p.report, 'run.log')
   const problem = hostProblem()
   if (problem) { log('NOT RUN:', problem); return 2 }
-  log(`installer ${p.installer} (${versionOf(p.installer)}); previous ${p.previous || '-'}; build folder ${p.root}; report ${p.report}`)
+  log(`installer ${p.installer} (${versionOf(p.installer)}); previous ${p.previous || '-'}; build folder ${p.root}; report ${p.report}${p.sacOff ? '; Smart App Control: off inside the Sandbox, by option' : ''}`)
   for (const t0w = Date.now(); ;) {
     let ids
     try { ids = await list() } catch (e) { log('NOT RUN:', e.message); return 2 }
@@ -221,8 +255,8 @@ async function main(argv) {
     WSB_TOOL_DIRS: [`node=${path.dirname(process.execPath)}`, `playwright=${path.join(p.hive, 'node_modules', 'playwright-core')}`, `hive-tests=${path.join(p.hive, 'tests')}`].join(';'),
     WSB_SANDBOX_ROOT: path.join(p.report, 'sandbox')
   }
-  const ctx = { report: p.report, files: {}, shots: [], steps: [], timings: {}, leftRunning: [], notRun: {}, sac: null }
-  const start = { build: p.root, network: false, session: true, tools: ['node', 'playwright', 'hive-tests'], maxMinutes: 30 }
+  const ctx = { report: p.report, files: {}, shots: [], steps: [], timings: {}, leftRunning: [], notRun: {}, sac: null, sacOff: p.sacOff }
+  const start = { build: p.root, network: false, session: true, tools: ['node', 'playwright', 'hive-tests'], maxMinutes: 30, ...(p.sacOff ? { smartAppControl: 'off' } : {}) }
   const time = async (k, fn) => { const t = Date.now(); const r = await fn(); ctx.timings[k] = `${((Date.now() - t) / 1000).toFixed(1)} s`; return r }
   const bodies = {
     fresh: async srv => {
@@ -289,7 +323,7 @@ async function main(argv) {
     steps: ctx.steps,
     leftRunning: ctx.leftRunning,
     notRun: ctx.notRun,
-    smartAppControl: ctx.sac
+    smartAppControl: sacMeta(ctx.sac, p.sacOff)
   }
   const result = evaluate(meta, ctx.files)
   fs.writeFileSync(path.join(p.report, 'report.json'), JSON.stringify(result, null, 2))
@@ -302,4 +336,4 @@ if (require.main === module) {
   main(process.argv.slice(2)).then(code => { process.exitCode = code }, e => { log('ERROR:', e.stack || e); process.exitCode = 2 })
 }
 // For tests.
-module.exports = { buildRoot, plan, inSandbox, sacState, blockedReason, setLogSink: fn => { logSink = fn } }
+module.exports = { buildRoot, plan, inSandbox, sacState, blockedReason, cmpVersion, setLogSink: fn => { logSink = fn } }

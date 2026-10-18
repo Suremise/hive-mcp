@@ -126,7 +126,7 @@ test('only the scenarios that ran are checked', () => {
   assert.ok(!r.checks.some(c => c.scenario === 4))
 })
 
-const SAC = { reason: 'Smart App Control in the Sandbox blocks unsigned installers (VerifiedAndReputablePolicyState = 1): sign the installer, or check on a machine without Smart App Control.' }
+const SAC = { reason: 'Smart App Control in the Sandbox blocks unsigned installers (VerifiedAndReputablePolicyState = 1): sign the installer, or run the checks with --smart-app-control off.' }
 
 test('both kinds not run: NOT RUN with the reason once, no checks, no failure (#611)', () => {
   const r = evaluate(meta({ shots: [], steps: [], notRun: { fresh: { ...SAC, installer: 'Hive-Setup-0.6.0.exe' }, upgrade: { ...SAC, installer: 'Hive-Setup-0.5.1.exe' } } }), {})

@@ -9,7 +9,7 @@ const { scratch, STUB } = require('./helpers')
 
 process.env.WSB_STUB = STUB
 process.env.WSB_STOP_RETRY_MS = '10'
-const { buildRoot, plan, inSandbox, sacState, blockedReason, setLogSink } = require('../scenarios/hive-checks')
+const { buildRoot, plan, inSandbox, sacState, blockedReason, cmpVersion, setLogSink } = require('../scenarios/hive-checks')
 const RUNNER = path.join(__dirname, '..', 'scenarios', 'hive-checks.js')
 
 test('build folder: the common folder of both installers; different drives and the drive root refused (no endless climb)', () => {
@@ -94,7 +94,7 @@ function runChecks(name, guest, extra = []) {
 }
 
 const SAC_BLOCKS = [{ match: 'install\\.ps1', exit: 1, stderr: BLOCKED_ERR }, { match: '^reg\\.exe query', stdout: SAC_ON }]
-const SAC_REASON = 'Smart App Control in the Sandbox blocks unsigned installers (VerifiedAndReputablePolicyState = 1): sign the installer, or check on a machine without Smart App Control.'
+const SAC_REASON = 'Smart App Control in the Sandbox blocks unsigned installers (VerifiedAndReputablePolicyState = 1): sign the installer, or run the checks with --smart-app-control off.'
 /** Exactly one NOT RUN line, the verdict with the reason, in both the output and run.log; no FAILED or PASSED. */
 function oneNotRunLine({ r, log }) {
   for (const text of [r.stdout, log]) {
@@ -112,8 +112,9 @@ test('Smart App Control blocking the installers → one NOT RUN line with the re
   assert.deepStrictEqual(json.notRun.map(n => [n.kind, n.installer]), [['fresh', 'Hive-Setup-0.6.0.exe'], ['upgrade', 'Hive-Setup-0.5.1.exe']])
   assert.strictEqual(json.failed, 0)
   assert.strictEqual(json.checks.length, 0)
-  assert.strictEqual(json.meta.smartAppControl, 1)
-  assert.match(md, /^\*\*NOT RUN: Smart App Control in the Sandbox blocks unsigned installers \(VerifiedAndReputablePolicyState = 1\): sign the installer, or check on a machine without Smart App Control\.\*\* · /m)
+  assert.deepStrictEqual(json.meta.smartAppControl, { state: 1, option: 'keep', note: 'left as Windows set it (read only)' })
+  assert.doesNotMatch(md, /Smart App Control in the Sandbox: /)
+  assert.match(md, /^\*\*NOT RUN: Smart App Control in the Sandbox blocks unsigned installers \(VerifiedAndReputablePolicyState = 1\): sign the installer, or run the checks with --smart-app-control off\.\*\* · /m)
   assert.match(md, /## Not run[\s\S]*- \*\*fresh\*\*: Windows refused `Hive-Setup-0\.6\.0\.exe`\.\n- \*\*upgrade\*\*: Windows refused `Hive-Setup-0\.5\.1\.exe`\./)
   assert.doesNotMatch(md, /FAIL/)
   // Nothing ran after the blocked install in either Sandbox, and the policy was only ever read.
@@ -151,4 +152,62 @@ test('inSandbox: the stop failing but the fallback succeeding → cleanup confir
   assert.strictEqual(r.cleanup, 'ok')
   assert.deepStrictEqual(s.read().sandboxes, [])
   assert.ok(s.read().calls.filter(c => c[0] === 'stop').length >= 7) // 6 failed, then a confirmed one (fallback or watchdog)
+})
+
+test('the previous installer: a release sorts above its prereleases, so 0.9.0 is picked over 0.9.0-beta.1 (#1092)', () => {
+  const sorted = ['0.9.0-beta.1', '0.9.0', '0.9.0-rc.10', '0.8.2', '0.9.0-rc.2', '0.8.2-rc.3', '0.9.0-rc', '0.10.0-rc.1'].sort(cmpVersion)
+  assert.deepStrictEqual(sorted, ['0.8.2-rc.3', '0.8.2', '0.9.0-beta.1', '0.9.0-rc', '0.9.0-rc.2', '0.9.0-rc.10', '0.9.0', '0.10.0-rc.1'])
+  const s = scratch('runner-previous-pick')
+  const hive = path.join(s.dir, 'builds', 'hive')
+  const dist = path.join(hive, 'dist')
+  fs.mkdirSync(dist)
+  // As in Hive's dist on 18 Oct: the RC run picked 0.9.0-beta.1, which sorted level with 0.9.0 and came first.
+  for (const v of ['0.8.2-rc.3', '0.9.0-beta.1', '0.9.0-rc.1', '0.9.0', '0.9.1-rc.1']) fs.writeFileSync(path.join(dist, `Hive-Setup-${v}.exe`), 'MZ')
+  assert.strictEqual(path.basename(plan(['--installer', path.join(dist, 'Hive-Setup-0.9.1-rc.1.exe'), '--hive', hive]).previous), 'Hive-Setup-0.9.0.exe')
+  // The newest other than the installer itself, even when that is a prerelease.
+  assert.strictEqual(path.basename(plan(['--installer', path.join(dist, 'Hive-Setup-0.9.0.exe'), '--hive', hive]).previous), 'Hive-Setup-0.9.1-rc.1.exe')
+})
+
+test('--smart-app-control: only "off"; anything else is refused before anything runs', () => {
+  assert.throws(() => plan(['--smart-app-control', 'on', '--installer', 'x']), /--smart-app-control takes only "off" .*, not "on"/)
+  assert.throws(() => plan(['--installer', 'x', '--smart-app-control']), /--smart-app-control takes only "off" .*, not nothing$/)
+  const s = scratch('runner-sac-bad')
+  const r = spawnSync(process.execPath, [RUNNER, '--smart-app-control', 'of', '--installer', 'x', '--report', path.join(s.dir, 'report')], { env: s.env, encoding: 'utf8' })
+  assert.strictEqual(r.status, 2)
+  assert.match(r.stderr, /NOT RUN: --smart-app-control takes only "off"/)
+  assert.ok(!s.read().calls, 'wsb was called')
+})
+
+const SAC_OFF_NOW = SAC_ON.replace('0x1', '0x0')
+/** The guest commands that touch Smart App Control, as their first two words. */
+const sacCommands = guests => guests.filter(g => /CI\\Policy|CiTool/i.test(g)).map(g => g.split(' ').slice(0, 2).join(' '))
+
+test('--smart-app-control off: each Sandbox started with it, the state read back before every install, the report says so (#1092)', () => {
+  const run = runChecks('runner-sac-off', [{ match: '^reg\\.exe query', stdout: SAC_OFF_NOW }], ['--smart-app-control', 'off'])
+  const { r, json, md, guests, log } = run
+  assert.strictEqual(r.status, 1, r.stdout + r.stderr) // the stub's drivers write no results: checks fail, nothing NOT RUN
+  assert.deepStrictEqual(json.notRun, [])
+  // Per Sandbox: the server's change and read-back, the runner's read at the start, then one read before each install.
+  const server = ['reg.exe add', 'CiTool.exe --refresh', 'reg.exe query']
+  assert.deepStrictEqual(sacCommands(guests), [...server, 'reg.exe query', 'reg.exe query', ...server, 'reg.exe query', 'reg.exe query', 'reg.exe query'])
+  const installs = guests.map((g, i) => [g, i]).filter(([g]) => /install\.ps1 -Exe "C:\\build\\/.test(g))
+  assert.strictEqual(installs.length, 3)
+  for (const [, i] of installs) assert.match(guests[i - 1], /^reg\.exe query /)
+  assert.deepStrictEqual(json.meta.smartAppControl, { state: 0, option: 'off', note: 'turned off by option' })
+  assert.match(md, /^- \*\*Smart App Control in the Sandbox: turned off by option\*\* \(`--smart-app-control off`; state 0, read before each install\)\. Inside the Sandbox only: the host isn't changed\./m)
+  assert.match(log, /; Smart App Control: off inside the Sandbox, by option/)
+  assert.deepStrictEqual(run.s.read().sandboxes, [])
+})
+
+test('--smart-app-control off that does not take (still 1) → NOT RUN with that reason, no installer run', () => {
+  const run = runChecks('runner-sac-not-off', [{ match: '^reg\\.exe query', stdout: SAC_ON }], ['--smart-app-control', 'off'])
+  const { r, json, md, guests } = run
+  assert.strictEqual(r.status, 2, r.stdout + r.stderr)
+  const reason = 'Smart App Control was to be turned off in the Sandbox (--smart-app-control off), but it reads 1 (VerifiedAndReputablePolicyState), not 0: the installers weren\'t run.'
+  assert.deepStrictEqual(json.notRun, [{ kind: 'fresh', reason, installer: 'Hive-Setup-0.6.0.exe' }, { kind: 'upgrade', reason, installer: 'Hive-Setup-0.5.1.exe' }])
+  assert.ok(!guests.some(g => /install\.ps1/.test(g)), guests.join('\n'))
+  assert.deepStrictEqual(json.meta.smartAppControl, { state: 1, option: 'off', note: 'asked off by option, but not off' })
+  assert.match(md, new RegExp(`^\\*\\*NOT RUN: ${reason.replace(/[.()]/g, '\\$&')}\\*\\*`, 'm'))
+  assert.match(md, /^- \*\*Smart App Control in the Sandbox: asked off by option, but not off\*\*/m)
+  assert.deepStrictEqual(run.s.read().sandboxes, [])
 })

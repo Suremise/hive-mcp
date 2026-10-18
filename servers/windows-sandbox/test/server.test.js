@@ -356,3 +356,71 @@ test('a failed start is reported with a hint and leaves nothing behind', async (
   assert.match((await srv.call('sandbox_status')).text, /None running/)
   await srv.close()
 })
+
+// The guest commands a run made, decoded from the run wrapper's -B64, with the exec's id and account.
+const guestRuns = s => s.read().calls.filter(c => c[0] === 'exec' && /run\.ps1/.test(c[c.indexOf('-c') + 1]))
+  .map(c => ({ id: c[c.indexOf('--id') + 1], as: c[c.indexOf('-r') + 1], command: Buffer.from(/-B64 (\S+)/.exec(c[c.indexOf('-c') + 1])[1], 'base64').toString('utf8') }))
+const SAC_IS = n => `\r\nHKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\CI\\Policy\r\n    VerifiedAndReputablePolicyState    REG_DWORD    0x${n}\r\n`
+
+test("smartAppControl 'off': turned off inside its own Sandbox only (wsb exec --id, as System), read back, said plainly (#1092)", async () => {
+  const s = scratch('srv-sac-off', { guest: [{ match: '^reg\\.exe query', stdout: SAC_IS(0) }] })
+  const { srv, r, id } = await started(s, { smartAppControl: 'off' })
+  assert.match(r.text, /^Smart App Control turned OFF in this Sandbox by option \(VerifiedAndReputablePolicyState 0, read back\), so unsigned installers can run\. The host is not changed\.$/m)
+  assert.deepStrictEqual(guestRuns(s), [
+    { id, as: 'System', command: 'reg.exe add HKLM\\SYSTEM\\CurrentControlSet\\Control\\CI\\Policy /v VerifiedAndReputablePolicyState /t REG_DWORD /d 0 /f' },
+    { id, as: 'System', command: 'CiTool.exe --refresh -json' },
+    { id, as: 'System', command: 'reg.exe query HKLM\\SYSTEM\\CurrentControlSet\\Control\\CI\\Policy /v VerifiedAndReputablePolicyState' }
+  ])
+  assert.match((await srv.call('sandbox_status')).text, /Smart App Control: turned off in this Sandbox by option\./)
+  await srv.call('sandbox_stop')
+  await srv.close()
+})
+
+test("smartAppControl: off by default (nothing changed), only 'keep' or 'off', and 'off' not taking is said plainly", async () => {
+  const s = scratch('srv-sac-default')
+  const { srv, r } = await started(s)
+  assert.doesNotMatch(r.text, /Smart App Control/)
+  assert.deepStrictEqual(guestRuns(s), [])
+  assert.doesNotMatch((await srv.call('sandbox_status')).text, /Smart App Control/)
+  await srv.call('sandbox_stop')
+  await srv.close()
+
+  const b = scratch('srv-sac-bad')
+  const srv2 = server(b.env)
+  for (const v of ['on', 'OFF', false]) {
+    const x = await srv2.call('sandbox_start', { build: path.join(b.dir, 'builds', 'hive'), smartAppControl: v })
+    assert.ok(x.isError && /smartAppControl is 'keep' \(default\) or 'off'/.test(x.text), x.text)
+  }
+  assert.ok(!(b.read().calls || []).some(c => c[0] === 'start'))
+  await srv2.close()
+
+  const n = scratch('srv-sac-still-on', { guest: [{ match: '^reg\\.exe query', stdout: SAC_IS(1) }] })
+  const t = await started(n, { smartAppControl: 'off' })
+  assert.match(t.r.text, /^Smart App Control NOT turned off \(smartAppControl 'off'\): read back as 1 \(VerifiedAndReputablePolicyState\), not 0\. Unsigned installers will still be blocked\.$/m)
+  assert.match((await t.srv.call('sandbox_status')).text, /Smart App Control: asked off, but NOT off \(state 1\)\./)
+  await t.srv.call('sandbox_stop')
+  await t.srv.close()
+
+  const f = scratch('srv-sac-refresh-fails', { guest: [{ match: '^CiTool', exit: 5, stderr: 'refresh failed' }] })
+  const u = await started(f, { smartAppControl: 'off' })
+  assert.match(u.r.text, /^Smart App Control NOT turned off \(smartAppControl 'off'\): CiTool\.exe --refresh -json: exit 5 /m)
+  assert.ok(!guestRuns(f).some(g => /query/.test(g.command)), 'read back after a failed step')
+  await u.srv.call('sandbox_stop')
+  await u.srv.close()
+})
+
+test('the Smart App Control change exists only as guest commands, sent only by the server through the run wrapper', () => {
+  // No other file of the server or the runner names the change, so nothing can run it on the host; they use SAC_OFF,
+  // and only server.js's smartAppControlOff does, through runCommand (wsb exec --id <its own Sandbox>).
+  const root = path.join(__dirname, '..')
+  const files = ['server.js', 'wsb.js', 'watchdog.js', 'confine.js', 'roots.js', 'client.js', ...fs.readdirSync(path.join(root, 'scenarios')).map(f => `scenarios/${f}`)]
+  for (const f of files) {
+    const src = fs.readFileSync(path.join(root, f), 'utf8')
+    assert.strictEqual(/reg(\.exe)? add|CiTool|\/d 0 \/f/i.test(src), f === 'wsb.js', f)
+    assert.strictEqual(/\bSAC_OFF\b/.test(src), f === 'wsb.js' || f === 'server.js', f)
+  }
+  const src = fs.readFileSync(path.join(root, 'server.js'), 'utf8')
+  const body = src.slice(src.indexOf('async function smartAppControlOff'), src.indexOf('async function start('))
+  assert.match(body, /for \(const command of SAC_OFF\)[\s\S]*?runCommand\(\{ command, as: 'system'/)
+  assert.strictEqual(src.split('SAC_OFF').length - 1, 2) // the import and that loop
+})

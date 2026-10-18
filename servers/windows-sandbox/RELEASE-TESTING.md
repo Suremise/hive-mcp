@@ -13,17 +13,23 @@ checks it on a clean Windows:
 node <this repo>\servers\windows-sandbox\scenarios\hive-checks.js `
   --installer "<Hive repo>\dist\<RC folder>\Hive-Setup-<version>.exe" `
   --hive "<Hive repo>" `
-  --report "$env:LOCALAPPDATA\hive-test\sandbox-reports\<version>-rc"
+  --report "$env:LOCALAPPDATA\hive-test\sandbox-reports\<version>-rc" `
+  --smart-app-control off
 ```
 
 - **What it runs:** about 3 minutes, two Sandboxes, the network off, and Hive's e2e fake CLIs only. No real CLI,
   sign-in or credential goes into the Sandbox. Whatever needs a real CLI stays with the hand-run tests.
 - **One Sandbox at a time** runs on the machine. If another one is running, the run says `NOT RUN` (exit 2): wait, or
   pass `--wait-min 30`. It never stops a Sandbox it didn't start.
-- **Smart App Control** in the Sandbox blocks an unsigned installer. Then the run says `NOT RUN` (exit 2) with that
-  reason, rather than failing every check. That's not a release finding: the build wasn't checked. Sign the
-  installer, or run the checks on a machine without Smart App Control. Never turn it off to get a run through (see
-  the README's "NOT RUN: an installer blocked").
+- **Smart App Control:** Hive's installers aren't signed yet, and Smart App Control in the Sandbox blocks unsigned
+  installers. So **until they are signed**, the release step passes `--smart-app-control off`: it turns Smart App
+  Control off **inside each Sandbox only**, never on the host, and the report says so ("turned off by option"). Once
+  the installers are signed, drop the option, so the check also covers how Windows treats the signed installer.
+  - Without the option, a blocked installer makes the run `NOT RUN` (exit 2) with that reason, rather than failing
+    every check. That's not a release finding: the build wasn't checked.
+  - With it, if Smart App Control still reads on in a Sandbox, that Sandbox's scenarios are `NOT RUN` with that
+    reason, and no installer is run. See the README's "NOT RUN: an installer blocked" and "Smart App Control in the
+    Sandbox".
 - **Attach the report to the release:**
   - the verdict line and any failed checks;
   - the path of the report folder (`report.md`, `report.json`, the screenshots).

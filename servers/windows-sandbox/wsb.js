@@ -79,6 +79,14 @@ function configXml({ network = false, folders = [], logon } = {}) {
   return x + '</Configuration>'
 }
 
+// Smart App Control's state, in the guest's registry (the guest's own, never the host's): 0 off, 1 on, 2 evaluation.
+const SAC_KEY = 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\CI\\Policy'
+const SAC_QUERY = `reg.exe query ${SAC_KEY} /v VerifiedAndReputablePolicyState`
+// Turning it off in a running guest, no reboot (measured on #1092): the value to 0, then Code Integrity reloads its policies.
+const SAC_OFF = [`reg.exe add ${SAC_KEY} /v VerifiedAndReputablePolicyState /t REG_DWORD /d 0 /f`, 'CiTool.exe --refresh -json']
+/** Smart App Control's state from SAC_QUERY's output, or null if not read. */
+const sacState = text => { const m = /VerifiedAndReputablePolicyState\s+REG_DWORD\s+0x([0-9a-f]+)/i.exec(text || ''); return m ? parseInt(m[1], 16) : null }
+
 /** Why this host can't run Sandboxes, or null. */
 function hostProblem() {
   if (process.env.WSB_STUB) return null
@@ -127,4 +135,4 @@ function windowOp(id, op) {
   })
 }
 
-module.exports = { WSB, ID_RE, wsb, list, stopConfirmed, configXml, hostProblem, hint, connect, windowOp }
+module.exports = { WSB, ID_RE, wsb, list, stopConfirmed, configXml, hostProblem, hint, connect, windowOp, SAC_KEY, SAC_QUERY, SAC_OFF, sacState }
