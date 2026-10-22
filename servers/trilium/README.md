@@ -123,6 +123,7 @@ reply's size on the fixture (`npm test` prints them), so a change that makes rep
 | `TRILIUM_ETAPI_TOKEN` | none | The ETAPI token: a reference to a user environment variable (see Setup), never a literal. |
 | `TRILIUM_READ_ONLY` | off | `1`: only the reading tools are listed, and the writing ones are refused. |
 | `TRILIUM_MAX_CHARS` | `8000` | How much of a note's content a read returns by default (at least 1000). |
+| `TRILIUM_CACHE_SECONDS` | `60` | How long fetched notes are kept between calls at most (see Limits); `0` keeps none. |
 
 ## Safety notes
 
@@ -142,7 +143,14 @@ reply's size on the fixture (`npm test` prints them), so a change that makes rep
 
 - Title paths can't name a note whose title holds a `/`: use its id.
 - A note's path in search results follows its first parent; `trilium_read_note` lists all of a cloned note's parents.
-- The index and title paths fetch each note they pass, ten at a time: a deep index of a large tree takes a few seconds.
+- The index and title paths fetch each note they pass, ten at a time: the first deep index of a large tree takes a few
+  seconds. The server then keeps the notes (titles, parents, children and labels, never content) for up to
+  `TRILIUM_CACHE_SECONDS`, so a repeated index costs one request: a search for Trilium's most recently changed note,
+  made on each call. A different answer (an edit, a new note or a rename in Trilium), or one of this server's own
+  writes, drops them. A move or a delete in Trilium doesn't change that answer: a title path still walks through
+  fresh notes (the top and one request a step, so it sees notes moved in or out), and a read that finds a kept note
+  gone runs again afresh, but the index and lists can show the old place for up to `TRILIUM_CACHE_SECONDS`. So can a
+  label changed in Trilium.
 - An append reads the note and writes it back whole. Appends through this server take turns per note, but ETAPI has no
   conflict check: an edit made in Trilium (or by another program) between that read and write is overwritten.
 - Only text notes can be appended to. Code notes are read as code; image and file notes aren't read.
@@ -157,6 +165,8 @@ run the server over stdio against a **fake ETAPI** (a local HTTP server in the t
 - long outlines (2,000 headings) and long titles and labels staying within bounds;
 - read-only mode, protected notes, HTTP errors and missing or unexpanded settings;
 - that nothing the server writes, on stdout or stderr, holds the token, even when Trilium echoes it back;
-- each reply's size on the fixture tree.
+- each reply's size on the fixture tree;
+- the cache, counting requests: a repeated index or title path fetches no note again, writes and changes made in
+  Trilium show on the next call, and a moved or deleted note is never reached through a stale path or id.
 
 They write no files.

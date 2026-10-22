@@ -23,6 +23,9 @@ const START_CHARS = 600
 const MAX_CHILDREN_SHOWN = 20
 const INDEX_LINES = 200
 const LABEL_NAME = /^[\p{L}\p{N}_:]+$/u
+// Fetched notes are kept between calls for at most this long (0: never kept); see notesCache.
+const CACHE_SECONDS = parseInt(process.env.TRILIUM_CACHE_SECONDS, 10)
+const CACHE_MS = (Number.isNaN(CACHE_SECONDS) ? 60 : Math.max(0, CACHE_SECONDS)) * 1000
 
 /** The text with the token replaced, so nothing the server writes can carry it. */
 function scrub(s) {
@@ -83,20 +86,57 @@ async function etapi(method, path, { body, as = 'json', timeoutMs = 30_000 } = {
 
 const enc = encodeURIComponent
 
-/** Notes fetched during one call, by id, so a path or a list asks for each note once. */
-function noteCache() {
-  const notes = new Map()
-  const get = id => {
-    if (!notes.has(id)) notes.set(id, etapi('GET', `/notes/${enc(id)}`))
-    return notes.get(id)
+/**
+ * Notes by id (never their content) kept between calls, so a deep index or a title path asks Trilium for each note
+ * once. notesCache drops them when Trilium's most recently changed note isn't the one it saw last, and after CACHE_MS;
+ * the server's own writes drop them too.
+ */
+const kept = { notes: new Map(), since: 0, latest: null }
+const forget = () => { kept.notes.clear(); kept.since = Date.now() }
+
+/**
+ * Notes by id from `notes` (by default, ones for this call only), so a path or a list asks for each note once. A fetch
+ * that fails isn't kept. fresh(id): the note as Trilium has it now, fetched again unless this call fetched it already.
+ */
+function noteCache(notes = new Map()) {
+  const own = new Set()
+  const load = id => {
+    const p = etapi('GET', `/notes/${enc(id)}`)
+    p.catch(() => { if (notes.get(id) === p) notes.delete(id) })
+    notes.set(id, p)
+    own.add(id)
+    return p
   }
+  const get = id => (notes.has(id) ? notes.get(id) : load(id))
+  const fresh = id => (own.has(id) && notes.has(id) ? notes.get(id) : load(id))
   /** The notes for ids, ten requests at a time. */
   const many = async ids => {
     const out = []
     for (let i = 0; i < ids.length; i += 10) out.push(...await Promise.all(ids.slice(i, i + 10).map(get)))
     return out
   }
-  return { get, many, put: n => notes.set(n.noteId, Promise.resolve(n)) }
+  const put = n => { notes.set(n.noteId, Promise.resolve(n)); own.add(n.noteId) }
+  return { get, many, put, fresh }
+}
+
+/**
+ * The cache for a call: the kept notes, first dropped if they are older than CACHE_MS or Trilium has changed since,
+ * which one request tells: its most recently changed note (an edit, a new note or a rename moves it). A move or a
+ * delete doesn't, so title paths are walked through fresh notes (resolveNote), and a read that finds a kept note gone
+ * runs again afresh.
+ */
+async function notesCache() {
+  if (!CACHE_MS) return noteCache()
+  if (Date.now() - kept.since > CACHE_MS) forget()
+  let latest = null
+  try {
+    const data = await etapi('GET', `/notes?search=${enc('note.dateModified >= 0')}&orderBy=dateModified&orderDirection=desc&limit=1`)
+    const n = data?.results?.[0]
+    latest = n ? `${n.noteId} ${n.dateModified}` : ''
+  } catch { /* can't tell: start afresh */ }
+  if (latest === null || latest !== kept.latest) forget()
+  kept.latest = latest
+  return noteCache(kept.notes)
 }
 
 /** The titles from the top of the tree down to the note's parent, through each first parent ("Gaming/PoE"). */
@@ -140,8 +180,12 @@ async function resolveNote(ref, cache, what = 'note') {
       if (e.status !== 404) throw e
     }
   }
+  // Each step's children come from its note fetched afresh (cache.fresh), as kept child lists may be out of date where
+  // Trilium's latest change doesn't show it (a note moved in or out). The children's titles can be kept ones: a rename
+  // does show. The note each step picks must still have the title it was picked by, or the path is walked again with
+  // nothing kept.
   const parts = ref.split('/').map(s => s.trim()).filter(Boolean)
-  let current = await cache.get('root')
+  let current = await cache.fresh('root')
   const walked = []
   for (const part of parts) {
     const children = await cache.many(current.childNoteIds ?? [])
@@ -150,7 +194,11 @@ async function resolveNote(ref, cache, what = 'note') {
     const where = walked.length ? `"${walked.join('/')}"` : 'the top of the tree'
     if (!found.length) throw new TriliumError(`No note titled "${part}" under ${where} (${what} "${ref}"). Use trilium_search or trilium_list_children to find it, or pass its note id.`)
     if (found.length > 1) throw new TriliumError(`${found.length} notes are titled "${part}" under ${where}: ${few(found.map(named))}. Pass the note id instead.`)
-    current = found[0]
+    current = await cache.fresh(found[0].noteId)
+    if (current.title !== found[0].title) {
+      forget()
+      return resolveNote(ref, noteCache(), what)
+    }
     walked.push(part)
   }
   return current
@@ -411,7 +459,7 @@ const tools = [
       }
     },
     run: async ({ note: ref = 'root', depth = 2, limit = INDEX_LINES }) => {
-      const cache = noteCache()
+      const cache = await notesCache()
       const top = await resolveNote(ref, cache)
       const levels = Math.min(6, Math.max(1, Math.floor(Number(depth)) || 2))
       const max = Math.min(1000, Math.max(1, Math.floor(Number(limit)) || INDEX_LINES))
@@ -450,7 +498,7 @@ const tools = [
       const data = await etapi('GET', `/notes?search=${enc(query)}&limit=${n}`)
       const results = (data?.results ?? []).slice(0, n)
       if (!results.length) return `No notes match ${JSON.stringify(query)}.`
-      const cache = noteCache()
+      const cache = await notesCache()
       for (const r of results) cache.put(r)
       const rows = await Promise.all(results.map(async r => {
         const path = await parentPath(r, cache)
@@ -476,7 +524,7 @@ const tools = [
       required: ['note']
     },
     run: async ({ note: ref, section, offset, outlineFrom, maxChars = MAX_CHARS, detail = false }) => {
-      const cache = noteCache()
+      const cache = await notesCache()
       const note = await resolveNote(ref, cache)
       const parents = await cache.many(note.parentNoteIds ?? []).catch(() => [])
       const childIds = note.childNoteIds ?? []
@@ -516,7 +564,7 @@ const tools = [
       }
     },
     run: async ({ note: ref = 'root', limit = 100 }) => {
-      const cache = noteCache()
+      const cache = await notesCache()
       const note = await resolveNote(ref, cache)
       const ids = visible(note.childNoteIds)
       const where = note.noteId === 'root' ? 'The top of the tree' : named(note)
@@ -550,7 +598,7 @@ const tools = [
       if (typeof title !== 'string' || !title.trim()) throw new TriliumError('title is the new note\'s title.')
       const html = contentHtml({ content, format, code })
       const wanted = parseLabels(labels)
-      const parent = await resolveNote(ref, noteCache(), 'parent')
+      const parent = await resolveNote(ref, await notesCache(), 'parent')
       const created = await etapi('POST', '/create-note', { body: { parentNoteId: parent.noteId, title: title.trim(), type: 'text', content: html } })
       const note = created?.note
       if (!note?.noteId) throw new TriliumError('Trilium created the note but didn\'t say its id.')
@@ -580,7 +628,7 @@ const tools = [
     run: async ({ note: ref, content, format, code }) => {
       const html = contentHtml({ content, format, code })
       if (!html) throw new TriliumError('Give content or code to add.')
-      const note = await resolveNote(ref, noteCache())
+      const note = await resolveNote(ref, await notesCache())
       if (note.isProtected) throw new TriliumError(`${named(note)}: ${PROTECTED}`)
       if (note.type !== 'text') throw new TriliumError(`${named(note)} is a ${note.type} note: only text notes can be added to.`)
       await oneAtATime(note.noteId, async () => {
@@ -605,7 +653,7 @@ const tools = [
     },
     run: async ({ note: ref, name, value }) => {
       const label = checkLabel(name, value)
-      const note = await resolveNote(ref, noteCache())
+      const note = await resolveNote(ref, await notesCache())
       await addLabel(note.noteId, label)
       return `Added #${label.name}${label.value ? `=${label.value}` : ''} to ${named(note)}.`
     }
@@ -613,6 +661,22 @@ const tools = [
 ]
 
 const listed = () => tools.filter(t => !READ_ONLY || !t.write)
+
+/**
+ * A tool's reply. A write drops the kept notes, failed or not (it may have changed some). A read that finds a note gone
+ * (a kept one deleted in Trilium) runs once more with none kept; a write never runs twice.
+ */
+async function runTool(tool, args) {
+  try {
+    return await tool.run(args)
+  } catch (e) {
+    if (tool.write || e.status !== 404 || !CACHE_MS) throw e
+    forget()
+    return await tool.run(args)
+  } finally {
+    if (tool.write) forget()
+  }
+}
 
 const GUIDANCE = [
   'Trilium Notes is the user\'s own notes app. Use trilium_search to find notes (Trilium\'s search syntax: words, #label, #label=value, note.title *= "x") and trilium_read_note to read one; notes can be named by id or by a title path such as "Projects/Ideas".',
@@ -659,8 +723,7 @@ async function handle(msg) {
       if (!tool) return replyError(id, -32602, `Unknown tool: ${params?.name}`)
       if (tool.write && READ_ONLY) return reply(id, { content: [{ type: 'text', text: `${tool.name} isn't available: this server is read-only (TRILIUM_READ_ONLY).` }], isError: true })
       try {
-        const result = await tool.run(params?.arguments ?? {})
-        return reply(id, { content: [{ type: 'text', text: scrub(result) }] })
+        return reply(id, { content: [{ type: 'text', text: scrub(await runTool(tool, params?.arguments ?? {})) }] })
       } catch (e) {
         return reply(id, { content: [{ type: 'text', text: scrub(e.message) }], isError: true })
       }
