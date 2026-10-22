@@ -1,0 +1,11 @@
+{
+  "description": "Search, read and add to your Trilium Notes (TriliumNext) over its ETAPI: a lean index of the note tree, search, outline-first reading, and creating, appending and labelling notes (no delete or move). Set TRILIUM_URL to your Trilium and TRILIUM_ETAPI_TOKEN as a user environment variable; TRILIUM_READ_ONLY=1 for reading only. Requires Node 18+ on PATH.",
+  "command": "node",
+  "args": [
+    "${HIVE_MCP_DIR}/trilium/server.js"
+  ],
+  "env": {
+    "TRILIUM_URL": "http://localhost:8080",
+    "TRILIUM_ETAPI_TOKEN": "${TRILIUM_ETAPI_TOKEN}"
+  }
+}

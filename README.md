@@ -12,6 +12,7 @@ Every server uses only Node built-ins: no dependencies, and no `npm install` to 
 | Server | What it does | Platform |
 |---|---|---|
 | [`ollama`](servers/ollama/) | Lets agents hand bulky reading and drafting work to local [Ollama](https://ollama.com) models. The server reads the files itself, so only the answer reaches the agent. | Any OS with Node and Ollama |
+| [`trilium`](servers/trilium/) | Lets agents search, read and add to your [Trilium Notes](https://github.com/TriliumNext/Trilium) over its ETAPI, lean on tokens: a compact index of the note tree, outline-first reading, no delete or move. The token stays in an environment variable. | Any OS with Node and a Trilium server |
 | [`windows-sandbox`](servers/windows-sandbox/) | Lets an agent test a build on a clean, throwaway Windows in Windows Sandbox: start one, run commands, take screenshots, collect files, and always stop it. | Windows 11 Pro/Enterprise |
 
 Each server's README covers its setup, tools, configuration, safety notes and limits.
@@ -20,6 +21,7 @@ Each server's README covers its setup, tools, configuration, safety notes and li
 
 - **Node 18 or later** on `PATH`, for every server.
 - **`ollama`:** Ollama installed and running, with at least one model pulled (e.g. `ollama pull qwen3.6:35b-a3b`).
+- **`trilium`:** a Trilium Notes (TriliumNext) server you can reach, and an ETAPI token for it.
 - **`windows-sandbox`:** Windows 11 **Pro, Enterprise or Education, 24H2 or later**, with virtualisation turned on in
   the firmware and the **Windows Sandbox** optional feature installed. (Windows Home has no Windows Sandbox.)
 - Packing the zips for Hive (below) needs Windows' built-in `tar.exe`.
@@ -107,7 +109,7 @@ Each zip has one top folder named after the server, holding:
 - the server's code;
 - `README.md` and `LICENSE`;
 - its Hive definition: `hive-mcp.json` when it works unchanged (`ollama`), else `hive-mcp.example.json` to edit
-  (`windows-sandbox`).
+  (`windows-sandbox`, `trilium`).
 
 Tests and probes stay out. `pack.mjs` checks each zip against Hive's rules for that dialog:
 - one top folder, and one definition;

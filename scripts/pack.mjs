@@ -19,7 +19,9 @@ const SERVERS = {
   'windows-sandbox': [
     ['server.js'], ['wsb.js'], ['confine.js'], ['watchdog.js'], ['roots.js'], ['client.js'], ['inside'], ['scenarios'],
     ['README.md'], ['RELEASE-TESTING.md'], ['hive-mcp.example.json']
-  ]
+  ],
+  // It goes in as the example, to be checked before it is turned on: TRILIUM_URL is the user's own Trilium.
+  trilium: [['server.js'], ['README.md'], ['hive-mcp.example.json']]
 }
 const DEFINITIONS = ['hive-mcp.json', 'hive-mcp.example.json']
 const MAX_FILES = 5000
