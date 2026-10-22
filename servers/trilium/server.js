@@ -96,19 +96,19 @@ const forget = () => { kept.notes.clear(); kept.since = Date.now() }
 
 /**
  * Notes by id from `notes` (by default, ones for this call only), so a path or a list asks for each note once. A fetch
- * that fails isn't kept. fetched(id): this cache fetched the note itself, rather than finding it kept.
+ * that fails isn't kept. fresh(id): the note as Trilium has it now, fetched again unless this call fetched it already.
  */
 function noteCache(notes = new Map()) {
   const own = new Set()
-  const get = id => {
-    if (!notes.has(id)) {
-      const p = etapi('GET', `/notes/${enc(id)}`)
-      p.catch(() => { if (notes.get(id) === p) notes.delete(id) })
-      notes.set(id, p)
-      own.add(id)
-    }
-    return notes.get(id)
+  const load = id => {
+    const p = etapi('GET', `/notes/${enc(id)}`)
+    p.catch(() => { if (notes.get(id) === p) notes.delete(id) })
+    notes.set(id, p)
+    own.add(id)
+    return p
   }
+  const get = id => (notes.has(id) ? notes.get(id) : load(id))
+  const fresh = id => (own.has(id) && notes.has(id) ? notes.get(id) : load(id))
   /** The notes for ids, ten requests at a time. */
   const many = async ids => {
     const out = []
@@ -116,13 +116,13 @@ function noteCache(notes = new Map()) {
     return out
   }
   const put = n => { notes.set(n.noteId, Promise.resolve(n)); own.add(n.noteId) }
-  return { get, many, put, kept: notes === kept.notes, fetched: id => own.has(id) }
+  return { get, many, put, fresh }
 }
 
 /**
  * The cache for a call: the kept notes, first dropped if they are older than CACHE_MS or Trilium has changed since,
  * which one request tells: its most recently changed note (an edit, a new note or a rename moves it). A move or a
- * delete doesn't, so title paths are checked against fresh notes (resolveNote), and a read that finds a kept note gone
+ * delete doesn't, so title paths are walked through fresh notes (resolveNote), and a read that finds a kept note gone
  * runs again afresh.
  */
 async function notesCache() {
@@ -180,10 +180,13 @@ async function resolveNote(ref, cache, what = 'note') {
       if (e.status !== 404) throw e
     }
   }
+  // Each step's children come from its note fetched afresh (cache.fresh), as kept child lists may be out of date where
+  // Trilium's latest change doesn't show it (a note moved in or out). The children's titles can be kept ones: a rename
+  // does show. The note each step picks must still have the title it was picked by, or the path is walked again with
+  // nothing kept.
   const parts = ref.split('/').map(s => s.trim()).filter(Boolean)
-  let current = await cache.get('root')
+  let current = await cache.fresh('root')
   const walked = []
-  const chain = []
   for (const part of parts) {
     const children = await cache.many(current.childNoteIds ?? [])
     let found = children.filter(c => c.title === part)
@@ -191,25 +194,14 @@ async function resolveNote(ref, cache, what = 'note') {
     const where = walked.length ? `"${walked.join('/')}"` : 'the top of the tree'
     if (!found.length) throw new TriliumError(`No note titled "${part}" under ${where} (${what} "${ref}"). Use trilium_search or trilium_list_children to find it, or pass its note id.`)
     if (found.length > 1) throw new TriliumError(`${found.length} notes are titled "${part}" under ${where}: ${few(found.map(named))}. Pass the note id instead.`)
-    current = found[0]
+    current = await cache.fresh(found[0].noteId)
+    if (current.title !== found[0].title) {
+      forget()
+      return resolveNote(ref, noteCache(), what)
+    }
     walked.push(part)
-    chain.push(current)
   }
-  // Kept notes may be out of date where Trilium's latest change doesn't show it (a note moved): each kept note on the
-  // path is fetched afresh and must still have its title and parent, or the path is walked again with fresh notes.
-  const stale = chain.filter(n => cache.kept && !cache.fetched(n.noteId))
-  if (!stale.length) return current
-  const fresh = await Promise.all(stale.map(n => etapi('GET', `/notes/${enc(n.noteId)}`).catch(() => null)))
-  const moved = fresh.some((n, i) => {
-    const at = chain.indexOf(stale[i])
-    return !n || n.title.toLowerCase() !== parts[at].toLowerCase() || !n.parentNoteIds?.includes(at ? chain[at - 1].noteId : 'root')
-  })
-  if (moved) {
-    forget()
-    return resolveNote(ref, noteCache(), what)
-  }
-  for (const n of fresh) cache.put(n)
-  return fresh[stale.indexOf(current)] ?? current
+  return current
 }
 
 // HTML to readable text ------------------------------------------------------------------------------------------

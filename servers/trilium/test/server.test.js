@@ -522,7 +522,7 @@ const from = () => { const n = fake.requests.length; return () => fake.requests.
 const paths = rs => rs.map(r => r.path).sort()
 const CHECK = '/etapi/notes' // the server's check for a change (a search) is the only request to /etapi/notes here
 
-test('cache: a repeated index asks only whether Trilium changed; a repeated title path checks just its own steps', async () => {
+test('cache: a repeated index asks only whether Trilium changed; a repeated title path fetches only its own steps', async () => {
   const srv = start()
   await srv.ready // its app-info request isn't counted
   let sent = from()
@@ -533,15 +533,16 @@ test('cache: a repeated index asks only whether Trilium changed; a repeated titl
   assert.strictEqual((await srv.call('trilium_index', { depth: 3 })).text, index.text)
   assert.deepStrictEqual(paths(sent()), [CHECK])
   assert.deepStrictEqual(paths(first.filter(r => r.path === CHECK)), [CHECK], 'one check a call')
-  // Kept notes on a title path are fetched afresh, one per step; their siblings and parents aren't.
+  // A title path fetches its own notes afresh, the top and one per step; their siblings and parents are kept ones.
   sent = from()
   const read = await srv.call('trilium_read_note', { note: 'Gaming/PoE/Builds' })
   assert.ok(read.text.startsWith('# Builds (builds)\nIn: PoE (poe)\nLabels: #todo\n'), read.text)
   // (_hidden: the walk looks at every child of the top, and the depth-3 index left system notes out.)
-  assert.deepStrictEqual(paths(sent()), [CHECK, '/etapi/notes/_hidden', '/etapi/notes/builds', '/etapi/notes/builds/content', '/etapi/notes/gaming', '/etapi/notes/poe'])
+  const steps = ['/etapi/notes/builds', '/etapi/notes/builds/content', '/etapi/notes/gaming', '/etapi/notes/poe', '/etapi/notes/root']
+  assert.deepStrictEqual(paths(sent()), [CHECK, '/etapi/notes/_hidden', ...steps].sort())
   sent = from()
   await srv.call('trilium_read_note', { note: 'Gaming/PoE/Builds' })
-  assert.deepStrictEqual(paths(sent()), [CHECK, '/etapi/notes/builds', '/etapi/notes/builds/content', '/etapi/notes/gaming', '/etapi/notes/poe'])
+  assert.deepStrictEqual(paths(sent()), [CHECK, ...steps])
   await srv.close()
   // Without the cache (TRILIUM_CACHE_SECONDS=0), each call fetches every note again, and no check is made.
   const off = start({ TRILIUM_CACHE_SECONDS: '0' })
@@ -603,6 +604,32 @@ test('cache: a note moved or deleted in Trilium (dateModified unmoved) is never 
   assert.deepStrictEqual(sent().map(q => q.path).filter(q => q.startsWith('/etapi/notes/builds')), ['/etapi/notes/builds/content', '/etapi/notes/builds'])
   assert.ok((await srv.call('trilium_index', { depth: 3 })).text.includes('  PoE (poe)\n'), 'the index lost it too')
   assert.deepStrictEqual(fake.writes(), [])
+  await srv.close()
+})
+
+test('cache: a note moved in under a kept path is seen: a second note of the same title is ambiguous, and nothing is written', async () => {
+  const srv = start()
+  fake.add({ noteId: 'builds2', title: 'Builds', parentNoteIds: ['archive'] })
+  assert.ok((await srv.call('trilium_read_note', { note: 'Gaming/PoE/Builds' })).text.startsWith('# Builds (builds)\n'))
+  // Moved into PoE without dateModified moving: Trilium's latest change stays the same.
+  fake.notes.get('archive').childNoteIds = fake.notes.get('archive').childNoteIds.filter(id => id !== 'builds2')
+  fake.notes.get('poe').childNoteIds.push('builds2')
+  fake.notes.get('builds2').parentNoteIds = ['poe']
+  const r = await srv.call('trilium_append_to_note', { note: 'Gaming/PoE/Builds', content: 'x' })
+  assert.ok(r.isError && r.text.startsWith('2 notes are titled "Builds" under "Gaming/PoE": Builds (builds), Builds (builds2)'), r.text)
+  assert.deepStrictEqual(fake.writes(), [])
+  await srv.close()
+})
+
+test('cache: a note moved in under a kept path, after a deep index, is found by its new path', async () => {
+  const srv = start()
+  assert.ok((await srv.call('trilium_index', { depth: 3 })).text.includes('\n  Script (script)\n'))
+  const gaming = fake.notes.get('gaming')
+  gaming.childNoteIds = gaming.childNoteIds.filter(id => id !== 'script')
+  fake.notes.get('poe').childNoteIds.push('script')
+  fake.notes.get('script').parentNoteIds = ['poe']
+  const r = await srv.call('trilium_read_note', { note: 'Gaming/PoE/Script' })
+  assert.ok(r.text.startsWith('# Script (script) · code\nIn: PoE (poe)\n'), r.text)
   await srv.close()
 })
 

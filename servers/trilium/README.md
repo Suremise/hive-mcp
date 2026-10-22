@@ -147,9 +147,10 @@ reply's size on the fixture (`npm test` prints them), so a change that makes rep
   seconds. The server then keeps the notes (titles, parents, children and labels, never content) for up to
   `TRILIUM_CACHE_SECONDS`, so a repeated index costs one request: a search for Trilium's most recently changed note,
   made on each call. A different answer (an edit, a new note or a rename in Trilium), or one of this server's own
-  writes, drops them. A move or a delete in Trilium doesn't change that answer: a title path is still checked against
-  fresh notes, one request a step, and a read that finds a kept note gone runs again afresh, but the index and lists
-  can show the old place for up to `TRILIUM_CACHE_SECONDS`. So can a label changed in Trilium.
+  writes, drops them. A move or a delete in Trilium doesn't change that answer: a title path still walks through
+  fresh notes (the top and one request a step, so it sees notes moved in or out), and a read that finds a kept note
+  gone runs again afresh, but the index and lists can show the old place for up to `TRILIUM_CACHE_SECONDS`. So can a
+  label changed in Trilium.
 - An append reads the note and writes it back whole. Appends through this server take turns per note, but ETAPI has no
   conflict check: an edit made in Trilium (or by another program) between that read and write is overwritten.
 - Only text notes can be appended to. Code notes are read as code; image and file notes aren't read.
