@@ -64,6 +64,10 @@ function fakeTrilium() {
   add({ noteId: 'many', title: 'Many', parentNoteIds: ['archive'], content: Array.from({ length: 2000 }, (_, i) => `<h2>Heading ${i + 1}</h2><p>body</p>`).join('') })
   add({ noteId: 'tagged', title: 'T'.repeat(500), parentNoteIds: ['archive'], attributes: Array.from({ length: 200 }, (_, i) => label(`tag${i}`, 'v'.repeat(200))) })
   const requests = []
+  // changes: changed() is a dateModified later than any before it, as Trilium sets on an edit; failCheck makes the
+  // server's check for a change fail.
+  let tick = 0
+  const changes = { failCheck: false, changed: () => `2026-10-23 09:00:${String(++tick).padStart(2, '0')}.000+0200` }
   // appends: per note, how many content reads are open (read, not yet written back) and the most at once; failPuts
   // makes that many content writes fail. No timers: the queue's ordering itself is tested on its own, with deferreds.
   const appends = { open: new Map(), maxOpen: 0, failPuts: 0 }
@@ -82,6 +86,12 @@ function fakeTrilium() {
       if (p === '/etapi/notes' && req.method === 'GET') {
         const q = url.searchParams.get('search').toLowerCase()
         const limit = Number(url.searchParams.get('limit')) || 100
+        // The server's check for a change: every note, most recently changed first.
+        if (q === 'note.datemodified >= 0' && url.searchParams.get('orderBy') === 'dateModified' && url.searchParams.get('orderDirection') === 'desc') {
+          if (changes.failCheck) return fail(res, 500, 'INTERNAL', 'Search failed')
+          const all = [...notes.values()].filter(n => n.noteId !== 'root').sort((a, b) => (a.dateModified < b.dateModified ? 1 : -1))
+          return json(res, 200, { results: all.slice(0, limit).map(view) })
+        }
         const hits = [...notes.values()].filter(n => n.noteId !== 'root' && (q.startsWith('#')
           ? n.attributes.some(a => a.name === q.slice(1))
           : n.title.toLowerCase().includes(q) || n.content.toLowerCase().includes(q)))
@@ -107,6 +117,7 @@ function fakeTrilium() {
           appends.open.set(id, (appends.open.get(id) ?? 1) - 1)
           if (appends.failPuts > 0) { appends.failPuts--; return fail(res, 500, 'INTERNAL', 'Write failed') }
           note.content = body
+          note.dateModified = changes.changed()
           res.statusCode = 204
           return res.end()
         }
@@ -114,7 +125,7 @@ function fakeTrilium() {
       if (p === '/etapi/create-note' && req.method === 'POST') {
         const b = JSON.parse(body)
         if (!notes.has(b.parentNoteId)) return fail(res, 400, 'PARENT_NOTE_NOT_FOUND', 'Parent not found')
-        const note = add({ noteId: `new${++next}`, title: b.title, type: b.type, content: b.content, parentNoteIds: [b.parentNoteId] })
+        const note = add({ noteId: `new${++next}`, title: b.title, type: b.type, content: b.content, parentNoteIds: [b.parentNoteId], dateModified: changes.changed() })
         return json(res, 201, { note: view(note), branch: {} })
       }
       if (p === '/etapi/attributes' && req.method === 'POST') {
@@ -130,8 +141,10 @@ function fakeTrilium() {
   })
   return {
     notes,
+    add,
     requests,
     appends,
+    changes,
     writes: () => requests.filter(r => r.method !== 'GET'),
     start: () => new Promise(r => server.listen(0, '127.0.0.1', () => r(`http://127.0.0.1:${server.address().port}`))),
     close: () => new Promise(r => { server.closeAllConnections?.(); server.close(r) })
@@ -144,7 +157,7 @@ const running = new Set()
 /** Starts server.js as a client would (initialize), then calls tools. */
 function server(env) {
   const child = spawn(process.execPath, [SERVER], {
-    env: { ...process.env, TRILIUM_URL: '', TRILIUM_ETAPI_TOKEN: '', TRILIUM_READ_ONLY: '', TRILIUM_MAX_CHARS: '', ...env },
+    env: { ...process.env, TRILIUM_URL: '', TRILIUM_ETAPI_TOKEN: '', TRILIUM_READ_ONLY: '', TRILIUM_MAX_CHARS: '', TRILIUM_CACHE_SECONDS: '', ...env },
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true
   })
@@ -501,6 +514,106 @@ test('add_label and list_children', async () => {
   assert.strictEqual(r.text, 'Gaming (gaming): 3 children\n- PoE (poe) +1\n- Script (script) · code\n- Rich (rich)')
   r = await srv.call('trilium_list_children', { note: 'builds' })
   assert.strictEqual(r.text, 'Builds (builds) has no children.')
+  await srv.close()
+})
+
+/** The requests sent from now on, as a function to call once the calls are done. */
+const from = () => { const n = fake.requests.length; return () => fake.requests.slice(n) }
+const paths = rs => rs.map(r => r.path).sort()
+const CHECK = '/etapi/notes' // the server's check for a change (a search) is the only request to /etapi/notes here
+
+test('cache: a repeated index asks only whether Trilium changed; a repeated title path checks just its own steps', async () => {
+  const srv = start()
+  await srv.ready // its app-info request isn't counted
+  let sent = from()
+  const index = await srv.call('trilium_index', { depth: 3 })
+  const first = sent()
+  assert.ok(first.length >= 12, `${first.length} requests`)
+  sent = from()
+  assert.strictEqual((await srv.call('trilium_index', { depth: 3 })).text, index.text)
+  assert.deepStrictEqual(paths(sent()), [CHECK])
+  assert.deepStrictEqual(paths(first.filter(r => r.path === CHECK)), [CHECK], 'one check a call')
+  // Kept notes on a title path are fetched afresh, one per step; their siblings and parents aren't.
+  sent = from()
+  const read = await srv.call('trilium_read_note', { note: 'Gaming/PoE/Builds' })
+  assert.ok(read.text.startsWith('# Builds (builds)\nIn: PoE (poe)\nLabels: #todo\n'), read.text)
+  // (_hidden: the walk looks at every child of the top, and the depth-3 index left system notes out.)
+  assert.deepStrictEqual(paths(sent()), [CHECK, '/etapi/notes/_hidden', '/etapi/notes/builds', '/etapi/notes/builds/content', '/etapi/notes/gaming', '/etapi/notes/poe'])
+  sent = from()
+  await srv.call('trilium_read_note', { note: 'Gaming/PoE/Builds' })
+  assert.deepStrictEqual(paths(sent()), [CHECK, '/etapi/notes/builds', '/etapi/notes/builds/content', '/etapi/notes/gaming', '/etapi/notes/poe'])
+  await srv.close()
+  // Without the cache (TRILIUM_CACHE_SECONDS=0), each call fetches every note again, and no check is made.
+  const off = start({ TRILIUM_CACHE_SECONDS: '0' })
+  await off.ready
+  for (let i = 0; i < 2; i++) {
+    sent = from()
+    assert.strictEqual((await off.call('trilium_index', { depth: 3 })).text, index.text)
+    assert.strictEqual(sent().length, first.length - 1)
+  }
+  sent = from()
+  await off.call('trilium_read_note', { note: 'Gaming/PoE/Builds' })
+  assert.ok(sent().length > 10 && !sent().some(r => r.path === CHECK), paths(sent()).join(' '))
+  await off.close()
+})
+
+test('cache: the server\'s own writes show up on the next call, a label too (which doesn\'t change dateModified)', async () => {
+  const srv = start()
+  assert.ok((await srv.call('trilium_read_note', { note: 'builds' })).text.includes('Labels: #todo\n'))
+  await srv.call('trilium_add_label', { note: 'builds', name: 'done' })
+  assert.ok((await srv.call('trilium_read_note', { note: 'builds' })).text.includes('Labels: #todo #done\n'))
+  await srv.call('trilium_index', {})
+  const r = await srv.call('trilium_create_note', { parent: 'Gaming', title: 'New one' })
+  const id = /\((new\d+)\)/.exec(r.text)[1]
+  assert.ok((await srv.call('trilium_index', {})).text.includes(`\n  New one (${id})\n`))
+  await srv.close()
+})
+
+test('cache: a change made in Trilium shows up on the next call: a new note, a rename', async () => {
+  const srv = start()
+  await srv.call('trilium_index', {})
+  fake.add({ noteId: 'outside', title: 'Made elsewhere', parentNoteIds: ['gaming'], dateModified: fake.changes.changed() })
+  assert.ok((await srv.call('trilium_index', {})).text.includes('\n  Made elsewhere (outside)\n'))
+  Object.assign(fake.notes.get('script'), { title: 'Renamed', dateModified: fake.changes.changed() })
+  const r = await srv.call('trilium_list_children', { note: 'Gaming' })
+  assert.ok(r.text.includes('- Renamed (script) · code') && !r.text.includes('Script'), r.text)
+  await srv.close()
+})
+
+test('cache: a note moved or deleted in Trilium (dateModified unmoved) is never reached through a stale title path or id', async () => {
+  const srv = start()
+  assert.ok(!(await srv.call('trilium_read_note', { note: 'Gaming/Script' })).isError)
+  // Moved to the top of the tree: Trilium's latest change stays the same, so only the path's own check sees it.
+  const gaming = fake.notes.get('gaming')
+  gaming.childNoteIds = gaming.childNoteIds.filter(id => id !== 'script')
+  fake.notes.get('root').childNoteIds.push('script')
+  fake.notes.get('script').parentNoteIds = ['root']
+  let r = await srv.call('trilium_append_to_note', { note: 'Gaming/Script', content: 'x' })
+  assert.ok(r.isError && r.text.startsWith('No note titled "Script" under "Gaming"'), r.text)
+  r = await srv.call('trilium_read_note', { note: 'Script' })
+  assert.ok(r.text.startsWith('# Script (script) · code\nIn: root (root)\n'), r.text)
+  // Deleted: the kept note's content is gone (404), so the read runs again afresh and says so.
+  assert.ok(!(await srv.call('trilium_read_note', { note: 'builds' })).isError)
+  fake.notes.delete('builds')
+  fake.notes.get('poe').childNoteIds = []
+  const sent = from()
+  r = await srv.call('trilium_read_note', { note: 'builds' })
+  assert.ok(r.isError && r.text.startsWith('No note titled "builds"'), r.text)
+  // The kept note costs no request: its content's 404 comes first, then the note is fetched afresh.
+  assert.deepStrictEqual(sent().map(q => q.path).filter(q => q.startsWith('/etapi/notes/builds')), ['/etapi/notes/builds/content', '/etapi/notes/builds'])
+  assert.ok((await srv.call('trilium_index', { depth: 3 })).text.includes('  PoE (poe)\n'), 'the index lost it too')
+  assert.deepStrictEqual(fake.writes(), [])
+  await srv.close()
+})
+
+test('cache: when the check for a change fails, nothing is kept and the tools still work', async () => {
+  const srv = start()
+  fake.changes.failCheck = true
+  const index = await srv.call('trilium_index', {})
+  assert.ok(!index.isError, index.text)
+  const sent = from()
+  assert.strictEqual((await srv.call('trilium_index', {})).text, index.text)
+  assert.ok(sent().filter(r => r.path.startsWith('/etapi/notes/')).length >= 10, paths(sent()).join(' '))
   await srv.close()
 })
 
