@@ -685,4 +685,4 @@ if (require.main === module) {
   })
 }
 
-module.exports = { htmlToText, textToHtml, contentHtml, outline }
+module.exports = { htmlToText, textToHtml, contentHtml, outline, oneAtATime }

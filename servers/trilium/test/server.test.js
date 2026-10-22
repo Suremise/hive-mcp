@@ -7,7 +7,7 @@ const http = require('http')
 const path = require('path')
 const { spawn } = require('child_process')
 const { createInterface } = require('readline')
-const { htmlToText, textToHtml, contentHtml, outline } = require('../server')
+const { htmlToText, textToHtml, contentHtml, outline, oneAtATime } = require('../server')
 
 const SERVER = path.join(__dirname, '..', 'server.js')
 const TOKEN = 'tok_FAKE-etapi-SECRET+9z/Q='
@@ -64,10 +64,9 @@ function fakeTrilium() {
   add({ noteId: 'many', title: 'Many', parentNoteIds: ['archive'], content: Array.from({ length: 2000 }, (_, i) => `<h2>Heading ${i + 1}</h2><p>body</p>`).join('') })
   add({ noteId: 'tagged', title: 'T'.repeat(500), parentNoteIds: ['archive'], attributes: Array.from({ length: 200 }, (_, i) => label(`tag${i}`, 'v'.repeat(200))) })
   const requests = []
-  // gate: hold each GET of this note's content until a second one arrives (two appends reading at once: a lost update)
-  // or 300 ms pass (the second is queued behind the first, as it should be). maxHeld is the most held at once.
-  const gate = { id: null, held: [], maxHeld: 0 }
-  const release = () => { for (const r of gate.held.splice(0)) r() }
+  // appends: per note, how many content reads are open (read, not yet written back) and the most at once; failPuts
+  // makes that many content writes fail. No timers: the queue's ordering itself is tested on its own, with deferreds.
+  const appends = { open: new Map(), maxOpen: 0, failPuts: 0 }
   const json = (res, status, data) => { res.statusCode = status; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(data)) }
   const fail = (res, status, code, message) => json(res, status, { status, code, message })
   const view = ({ content, ...n }) => n
@@ -98,14 +97,19 @@ function fakeTrilium() {
         if (!note) return fail(res, 404, 'NOTE_NOT_FOUND', `Note '${id}' not found.`)
         if (!m[2]) return json(res, 200, view(note))
         if (note.isProtected) return fail(res, 400, 'NOTE_IS_PROTECTED', 'Note is protected')
-        if (req.method === 'GET' && id === gate.id) {
-          gate.held.push(() => { res.setHeader('Content-Type', 'text/html'); res.end(note.content) })
-          gate.maxHeld = Math.max(gate.maxHeld, gate.held.length)
-          if (gate.held.length >= 2) return release()
-          return setTimeout(release, 300)
+        if (req.method === 'GET') {
+          appends.open.set(id, (appends.open.get(id) ?? 0) + 1)
+          appends.maxOpen = Math.max(appends.maxOpen, appends.open.get(id))
+          res.setHeader('Content-Type', 'text/html')
+          return res.end(note.content)
         }
-        if (req.method === 'GET') { res.setHeader('Content-Type', 'text/html'); return res.end(note.content) }
-        if (req.method === 'PUT') { note.content = body; res.statusCode = 204; return res.end() }
+        if (req.method === 'PUT') {
+          appends.open.set(id, (appends.open.get(id) ?? 1) - 1)
+          if (appends.failPuts > 0) { appends.failPuts--; return fail(res, 500, 'INTERNAL', 'Write failed') }
+          note.content = body
+          res.statusCode = 204
+          return res.end()
+        }
       }
       if (p === '/etapi/create-note' && req.method === 'POST') {
         const b = JSON.parse(body)
@@ -127,7 +131,7 @@ function fakeTrilium() {
   return {
     notes,
     requests,
-    gate,
+    appends,
     writes: () => requests.filter(r => r.method !== 'GET'),
     start: () => new Promise(r => server.listen(0, '127.0.0.1', () => r(`http://127.0.0.1:${server.address().port}`))),
     close: () => new Promise(r => { server.closeAllConnections?.(); server.close(r) })
@@ -391,22 +395,52 @@ test('append: reads the content, adds text or code to its end, and writes it bac
   await srv.close()
 })
 
-test('append: two at once to one note (by id and by title path) both land: the second waits for the first', async () => {
+/** Yields to the event loop until check() holds (no timers; bounded, so a broken check fails rather than hangs). */
+async function until(check) {
+  for (let i = 0; i < 1000 && !check(); i++) await new Promise(r => setImmediate(r))
+  assert.ok(check(), 'the condition never held')
+}
+
+test('oneAtATime: calls for one note run in turn, a failure doesn\'t stop the next, another note doesn\'t wait', async () => {
+  const deferred = () => { const d = {}; d.promise = new Promise((resolve, reject) => Object.assign(d, { resolve, reject })); return d }
+  const [d1, d2, d3] = [deferred(), deferred(), deferred()]
+  const log = []
+  const r1 = oneAtATime('n', () => { log.push(1); return d1.promise })
+  const r2 = oneAtATime('n', () => { log.push(2); return d2.promise })
+  const r3 = oneAtATime('other', () => { log.push(3); return d3.promise })
+  await until(() => log.includes(1) && log.includes(3))
+  // 1 hasn't settled, so 2 can't have started: without the queue it would have started with 1.
+  assert.deepStrictEqual(log, [1, 3])
+  d1.reject(new Error('read failed'))
+  await assert.rejects(r1, /read failed/)
+  await until(() => log.includes(2))
+  assert.deepStrictEqual(log, [1, 3, 2])
+  d2.resolve('two')
+  d3.resolve('three')
+  assert.deepStrictEqual(await Promise.all([r2, r3]), ['two', 'three'])
+})
+
+test('append: two at once to one note, by id and by title path, both land; a write failing in the queue doesn\'t stop the next', async () => {
   const srv = start()
-  fake.gate.id = 'builds'
-  const [a, b] = await Promise.all([
-    srv.call('trilium_append_to_note', { note: 'builds', content: 'first' }),
-    srv.call('trilium_append_to_note', { note: 'Gaming/PoE/Builds', content: 'second' })
+  const both = (x, y) => Promise.all([
+    srv.call('trilium_append_to_note', { note: 'builds', content: x }),
+    srv.call('trilium_append_to_note', { note: 'Gaming/PoE/Builds', content: y })
   ])
+  const [a, b] = await both('first', 'second')
   assert.ok(!a.isError && !b.isError, `${a.text}\n${b.text}`)
-  const content = fake.notes.get('builds').content
+  let content = fake.notes.get('builds').content
   assert.ok(content.includes('<p>first</p>') && content.includes('<p>second</p>'), content)
-  assert.strictEqual(fake.gate.maxHeld, 1, 'the two appends read the content at the same time')
-  // A failed append doesn't hold up the next one.
-  fake.gate.id = null
-  assert.ok((await srv.call('trilium_append_to_note', { note: 'builds', format: 'bad', content: 'x' })).isError)
-  assert.ok(!(await srv.call('trilium_append_to_note', { note: 'builds', content: 'third' })).isError)
-  assert.ok(fake.notes.get('builds').content.endsWith('<p>third</p>'))
+  // Always 1 with the queue. (Without it this usually shows 2, but the oneAtATime test above is what proves the order.)
+  assert.strictEqual(fake.appends.maxOpen, 1, 'two appends had the content read at once')
+  // The first write back fails, inside the queue: that call reports it, and the other still lands.
+  fake.appends.failPuts = 1
+  const replies = await both('third', 'fourth')
+  const failed = replies.filter(r => r.isError)
+  assert.strictEqual(failed.length, 1, replies.map(r => r.text).join('\n'))
+  assert.match(failed[0].text, /^Trilium couldn't PUT \/notes\/builds\/content: HTTP 500 \(INTERNAL: Write failed\)$/)
+  const landed = replies[0].isError ? 'fourth' : 'third'
+  content = fake.notes.get('builds').content
+  assert.ok(content.endsWith(`<p>${landed}</p>`) && !content.includes(`<p>${landed === 'third' ? 'fourth' : 'third'}</p>`), content)
   await srv.close()
 })
 
