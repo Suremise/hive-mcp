@@ -69,8 +69,11 @@ Reading:
   titles) and labels. `detail` adds when it last changed. 20 results by default, at most 100.
 - `trilium_read_note(note, section?, offset?, maxChars?, detail?)`: the note as readable text (headings `#`, lists,
   to-dos `[x]`, links `[text](href)`, code blocks and tables kept), with its parents, labels and up to 20 children.
-  - A note over 4,000 characters with headings comes back as its **outline** (each heading with its size) and its
-    first 600 characters. `section` (a heading, part of one, or its number) reads that part with its subheadings.
+  - A note over 4,000 characters with headings comes back as its **outline** (each heading with its number and size)
+    and its first 600 characters. `section` (a heading, part of one, or its number) reads that part with its
+    subheadings.
+  - The outline keeps within `maxChars` too: a note with more headings than fit says which it shows, and
+    `outlineFrom` (a heading number) shows the next ones.
   - `offset` (0 for the start) reads in order, skipping the outline. Content is cut at 8,000 characters by default
     (`maxChars`, at most 200,000), with a line saying where and which offset reads on.
   - `detail` adds the note's type, MIME type and its created and changed dates.
@@ -82,10 +85,13 @@ Writing (left out with `TRILIUM_READ_ONLY=1`):
   - `content` is plain text by default, escaped into HTML: a blank line starts a paragraph, a line break stays one.
     With `format: "html"` it is sent as given.
   - `code` adds a code block after it, `<pre><code class="language-text-plain">`, kept exactly: backslashes
-    (`\\server\share`, a regex such as `y: \+2[0-9]%`) and `<`, `&` round-trip unchanged.
+    (`\\server\share`, a regex such as `y: \+2[0-9]%`), `<` and `&`, trailing spaces and tabs, and blank lines
+    round-trip unchanged. A read shows a code block fenced with more backticks than any run inside it, so lines of
+    ```` ``` ```` in the code don't end it; only a final line break isn't shown.
   - `labels`: `["todo", "status=done"]`.
 - `trilium_append_to_note(note, content?, format?, code?)`: adds to the end of a text note (reads its content, appends,
-  writes it back), with the same `content`, `format` and `code` as above.
+  writes it back), with the same `content`, `format` and `code` as above. Appends to the same note through this server
+  take turns, so two at once both land (see Limits for edits made elsewhere).
 - `trilium_add_label(note, name, value?)`.
 
 There are no delete, move or protect tools.
@@ -100,11 +106,13 @@ Replies are plain compact text, sized for an agent's context, and the cheap way 
 | `trilium_search` | one line per note: title, id, parents' titles, labels (about 40 to 100 characters) |
 | `trilium_list_children` | one line per child, as the index |
 | `trilium_read_note`, a short note | the note's text plus a 2 to 5 line header |
-| `trilium_read_note`, a long note | its outline and first 600 characters: under 1,000 characters for a note of any length with a few headings |
+| `trilium_read_note`, a long note | its outline and first 600 characters: under 1,000 characters for a note of any length with a few headings, and never more than `maxChars` of outline however many headings it has |
 | `trilium_read_note` with `section` | that part only |
 
 On the test fixture, a 10,000-character note with four headings comes back as an 835-character outline, and one
-section as 1,240 characters. Dates, MIME types and other details come only with `detail: true`. The tests pin each
+section as 1,240 characters. Dates, MIME types and other details come only with `detail: true`. Long titles, label
+values and lists (labels, parents, children, matching headings or notes in an error) are cut, with a count of what
+was left out. The tests pin each
 reply's size on the fixture (`npm test` prints them), so a change that makes replies bigger is a deliberate one.
 
 ## Configuration (`env`)
@@ -135,6 +143,8 @@ reply's size on the fixture (`npm test` prints them), so a change that makes rep
 - Title paths can't name a note whose title holds a `/`: use its id.
 - A note's path in search results follows its first parent; `trilium_read_note` lists all of a cloned note's parents.
 - The index and title paths fetch each note they pass, ten at a time: a deep index of a large tree takes a few seconds.
+- An append reads the note and writes it back whole. Appends through this server take turns per note, but ETAPI has no
+  conflict check: an edit made in Trilium (or by another program) between that read and write is overwritten.
 - Only text notes can be appended to. Code notes are read as code; image and file notes aren't read.
 
 ## Tests
@@ -142,8 +152,9 @@ reply's size on the fixture (`npm test` prints them), so a change that makes rep
 From the repo root, `npm test` runs them with the rest. Or from this folder: `node --test test\server.test.js`. They
 run the server over stdio against a **fake ETAPI** (a local HTTP server in the test, never a real Trilium) and cover:
 - the index, search, reading (HTML to text, outlines and sections, cuts and offsets) and listing children;
-- creating under a title path (text escaped, code blocks with backslashes round-tripping exactly, labels), appending,
-  and labels;
+- creating under a title path (text escaped, code blocks round-tripping exactly: backslashes, trailing whitespace,
+  blank lines, ``` lines), labels, and appending, two at once to one note included;
+- long outlines (2,000 headings) and long titles and labels staying within bounds;
 - read-only mode, protected notes, HTTP errors and missing or unexpanded settings;
 - that nothing the server writes, on stdout or stderr, holds the token, even when Trilium echoes it back;
 - each reply's size on the fixture tree.

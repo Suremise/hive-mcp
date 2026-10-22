@@ -69,7 +69,7 @@ async function etapi(method, path, { body, as = 'json', timeoutMs = 30_000 } = {
     if (res.status === 401) throw new TriliumError('Trilium refused the ETAPI token (HTTP 401): check TRILIUM_ETAPI_TOKEN, or create a new token in Trilium (Options → ETAPI).', 401)
     let data = null
     try { data = JSON.parse(text) } catch { /* not JSON */ }
-    const detail = data?.message ? `${data.code ? `${data.code}: ` : ''}${data.message}` : text.trim().slice(0, 200)
+    const detail = short(data?.message ? `${data.code ? `${data.code}: ` : ''}${data.message}` : text.trim(), 300)
     throw new TriliumError(`Trilium couldn't ${method} ${path.split('?')[0]}: HTTP ${res.status}${detail ? ` (${detail})` : ''}`, res.status)
   }
   if (as === 'text') return text
@@ -115,9 +115,14 @@ async function parentPath(note, cache) {
 /** Child ids without Trilium's own system notes (ids starting with _, such as _hidden). */
 const visible = ids => (ids ?? []).filter(id => !id.startsWith('_'))
 const chars = n => (n < 1000 ? String(n) : `${(n / 1000).toFixed(1)}k`)
-const labelsOf = note => (note.attributes ?? []).filter(a => a.type === 'label').map(a => `#${a.name}${a.value ? `=${a.value}` : ''}`)
+const labelsOf = note => (note.attributes ?? []).filter(a => a.type === 'label').map(a => `#${a.name}${a.value ? `=${short(a.value, 60)}` : ''}`)
+const labelList = (labels, n) => labels.slice(0, n).join(' ') + (labels.length > n ? ` +${labels.length - n} more labels` : '')
 const when = d => String(d ?? '').slice(0, 16)
-const named = n => `${n.title} (${n.noteId})`
+/** A title or other text cut to max characters, so one long title can't swell a reply. */
+const short = (s, max = 100) => (String(s).length > max ? `${String(s).slice(0, max - 1)}…` : String(s))
+/** The first n items joined, and how many more there are. */
+const few = (items, n = 20) => items.slice(0, n).join(', ') + (items.length > n ? `, +${items.length - n} more` : '')
+const named = n => `${short(n.title)} (${n.noteId})`
 const PROTECTED = 'It is a protected note: Trilium\'s ETAPI can\'t read or change protected notes\' content. Open it in Trilium instead.'
 
 /**
@@ -144,7 +149,7 @@ async function resolveNote(ref, cache, what = 'note') {
     if (!found.length) found = children.filter(c => c.title.toLowerCase() === part.toLowerCase())
     const where = walked.length ? `"${walked.join('/')}"` : 'the top of the tree'
     if (!found.length) throw new TriliumError(`No note titled "${part}" under ${where} (${what} "${ref}"). Use trilium_search or trilium_list_children to find it, or pass its note id.`)
-    if (found.length > 1) throw new TriliumError(`${found.length} notes are titled "${part}" under ${where}: ${found.map(named).join(', ')}. Pass the note id instead.`)
+    if (found.length > 1) throw new TriliumError(`${found.length} notes are titled "${part}" under ${where}: ${few(found.map(named))}. Pass the note id instead.`)
     current = found[0]
     walked.push(part)
   }
@@ -181,8 +186,7 @@ function htmlToText(html) {
     .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, '')
     .replace(/<pre\b[^>]*>([\s\S]*?)<\/pre>/gi, (all, inner) => {
-      const code = decodeEntities(inner.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ''))
-      blocks.push('```\n' + code.replace(/\n$/, '') + '\n```')
+      blocks.push(fenced(decodeEntities(inner.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ''))))
       return `<pre-block ${blocks.length - 1}>`
     })
   let out = ''
@@ -204,8 +208,9 @@ function htmlToText(html) {
     const close = !!m[1]
     const tag = m[2].toLowerCase()
     if (tag === 'pre-block') {
+      // A stand-in until the prose is tidied, so the tidying never touches the code.
       breakBlock()
-      out += blocks[Number(token.slice(11, -1))]
+      out += `\u0000${token.slice(11, -1)}\u0000`
       breakBlock()
     } else if (/^h[1-6]$/.test(tag)) {
       breakBlock()
@@ -246,16 +251,28 @@ function htmlToText(html) {
     }
   }
   return out.split('\n').map(l => l.replace(/[ \t]+$/, '')).join('\n').replace(/\n{3,}/g, '\n\n').trim()
+    .replace(/\u0000(\d+)\u0000/g, (all, i) => blocks[Number(i)])
+}
+
+/**
+ * Code as a fenced block, its text exactly as it is (one final line break aside): the fence is longer than any run of
+ * backticks in the code, so a ``` line inside it can't end the block.
+ */
+function fenced(code) {
+  const fence = '`'.repeat(Math.max(3, ...(code.match(/`+/g) ?? []).map(r => r.length + 1)))
+  return `${fence}\n${code.replace(/\n$/, '')}\n${fence}`
 }
 
 /** The headings of readable text (# lines outside code blocks): level, title, and where each one's part starts and ends. */
 function outline(text) {
   const heads = []
   let at = 0
-  let fenced = false
+  let fence = null
   for (const line of text.split('\n')) {
-    if (line.startsWith('```')) fenced = !fenced
-    else if (!fenced) {
+    const f = /^(`{3,})/.exec(line)
+    if (!fence && f) fence = f[1]
+    else if (fence && line.startsWith(fence) && /^`+$/.test(line)) fence = null
+    else if (!fence) {
       const m = /^(#{1,6}) (.+)$/.exec(line)
       if (m) heads.push({ level: m[1].length, title: m[2].trim(), start: at })
     }
@@ -272,7 +289,7 @@ function outline(text) {
 function findSection(heads, section) {
   if (!heads.length) throw new TriliumError('This note has no headings: read it with offset instead.')
   const s = String(section).trim()
-  const list = hs => hs.map(h => `${heads.indexOf(h) + 1}. ${h.title}`).join(', ')
+  const list = hs => few(hs.map(h => `${heads.indexOf(h) + 1}. ${short(h.title)}`))
   if (/^\d+$/.test(s)) {
     const h = heads[Number(s) - 1]
     if (!h) throw new TriliumError(`There is no section ${s}: the note has ${heads.length}.`)
@@ -284,6 +301,31 @@ function findSection(heads, section) {
   if (found.length === 1) return found[0]
   if (found.length) throw new TriliumError(`"${s}" matches ${found.length} headings: ${list(found)}. Pass its number.`)
   throw new TriliumError(`No heading matches "${s}". The headings: ${list(heads)}.`)
+}
+
+/**
+ * A long note's outline, from heading `from` (1 by default), within maxChars: each heading with its number and size,
+ * then the note's start (on the first page only). A cut outline says which headings it shows and how to see the rest.
+ */
+function outlinePage(text, heads, from, maxChars) {
+  const size = Math.min(MAX_CHARS_LIMIT, Math.max(1, Math.floor(Number(maxChars)) || MAX_CHARS))
+  const first = Math.min(heads.length, Math.max(1, Math.floor(Number(from)) || 1))
+  const startLen = first === 1 ? Math.min(START_CHARS, Math.floor(size / 4)) : 0
+  const min = Math.min(...heads.map(h => h.level))
+  const lines = []
+  let used = 0
+  let i = first - 1
+  for (; i < heads.length; i++) {
+    const h = heads[i]
+    const line = `${'  '.repeat(h.level - min)}${i + 1}. ${short(h.title, 80)} (${chars(h.end - h.start)})`
+    if (lines.length && used + line.length + 1 > size - startLen) break
+    lines.push(line)
+    used += line.length + 1
+  }
+  const cut = i < heads.length ? `\n[Headings ${first}–${i} of ${heads.length}. Pass outlineFrom ${i + 1} for more.]` : ''
+  const start = text.slice(0, startLen)
+  return `${chars(text.length)} characters, so the outline first. Pass section (a number or heading) to read a part, or offset 0 to read in order.\n` +
+    `${lines.join('\n')}${cut}${start ? `\n\nStart:\n${start}${start.length < text.length ? '…' : ''}` : ''}`
 }
 
 /** Up to maxChars of text from offset, with a line saying where it was cut and how to read on. */
@@ -333,6 +375,20 @@ function checkLabel(name, value = '') {
   name = String(name ?? '').trim().replace(/^#/, '')
   if (!LABEL_NAME.test(name)) throw new TriliumError(`"${name}" isn't a label name Trilium takes: letters, digits, _ and : only.`)
   return { name, value: String(value ?? '') }
+}
+
+/**
+ * Runs fn after every earlier call queued for the same note id has finished, so two appends to one note can't both
+ * read the old content and the second write lose the first. It covers this process's calls only: ETAPI has no
+ * conflict check, so an edit made elsewhere between the read and the write is still overwritten.
+ */
+const queues = new Map()
+function oneAtATime(noteId, fn) {
+  const run = (queues.get(noteId) ?? Promise.resolve()).then(fn)
+  const settled = run.catch(() => {})
+  queues.set(noteId, settled)
+  settled.then(() => { if (queues.get(noteId) === settled) queues.delete(noteId) })
+  return run
 }
 
 const addLabel = (noteId, { name, value }) =>
@@ -399,7 +455,7 @@ const tools = [
       const rows = await Promise.all(results.map(async r => {
         const path = await parentPath(r, cache)
         const labels = labelsOf(r)
-        return `- ${named(r)}${path ? ` in ${path}` : ''}${labels.length ? ` ${labels.join(' ')}` : ''}${r.isProtected ? ' (protected)' : ''}${detail ? ` · changed ${when(r.dateModified)}` : ''}`
+        return `- ${named(r)}${path ? ` in ${short(path, 120)}` : ''}${labels.length ? ` ${labelList(labels, 8)}` : ''}${r.isProtected ? ' (protected)' : ''}${detail ? ` · changed ${when(r.dateModified)}` : ''}`
       }))
       return `${results.length} note${results.length === 1 ? '' : 's'}${results.length === n ? ` (the first ${n})` : ''}:\n${rows.join('\n')}`
     }
@@ -413,12 +469,13 @@ const tools = [
         note: noteRef('note to read'),
         section: { type: 'string', description: 'A heading from the outline, or its number: reads that part (with its subheadings).' },
         offset: { type: 'number', description: 'Read the content (or the section) in order from this character, skipping the outline; 0 for the start.' },
-        maxChars: { type: 'number', description: `At most this many characters of content (default ${MAX_CHARS}, at most ${MAX_CHARS_LIMIT}).` },
+        outlineFrom: { type: 'number', description: 'Show the outline from this heading number on, when it was cut.' },
+        maxChars: { type: 'number', description: `At most this many characters of content, or of outline (default ${MAX_CHARS}, at most ${MAX_CHARS_LIMIT}).` },
         detail: { type: 'boolean', description: 'Also give the note\'s type, MIME type and when it was created and changed.' }
       },
       required: ['note']
     },
-    run: async ({ note: ref, section, offset, maxChars = MAX_CHARS, detail = false }) => {
+    run: async ({ note: ref, section, offset, outlineFrom, maxChars = MAX_CHARS, detail = false }) => {
       const cache = noteCache()
       const note = await resolveNote(ref, cache)
       const parents = await cache.many(note.parentNoteIds ?? []).catch(() => [])
@@ -428,26 +485,22 @@ const tools = [
       const head = [
         `# ${named(note)}${note.type !== 'text' ? ` · ${note.type}` : ''}`,
         detail ? `${note.type}${note.mime ? ` (${note.mime})` : ''} · created ${when(note.dateCreated)} · changed ${when(note.dateModified)}` : null,
-        parents.length ? `In: ${parents.map(named).join(', ')}` : null,
-        labels.length ? `Labels: ${labels.join(' ')}` : null,
+        parents.length ? `In: ${few(parents.map(named), 10)}` : null,
+        labels.length ? `Labels: ${labelList(labels, 30)}` : null,
         childIds.length ? `Children (${childIds.length}): ${children.map(named).join(', ')}${childIds.length > children.length ? `, +${childIds.length - children.length} more (trilium_list_children)` : ''}` : null
       ].filter(Boolean).join('\n')
       if (note.isProtected) return `${head}\n\n${PROTECTED}`
       if (['image', 'file'].includes(note.type)) return `${head}\n\n(A ${note.type} note: its content isn't text.)`
       const raw = await etapi('GET', `/notes/${enc(note.noteId)}/content`, { as: 'text' })
-      const text = note.type === 'text' ? htmlToText(raw) : note.type === 'code' ? '```\n' + raw.replace(/\n$/, '') + '\n```' : raw
+      const text = note.type === 'text' ? htmlToText(raw) : note.type === 'code' ? fenced(raw) : raw
       if (!text.trim()) return `${head}\n\n(No content.)`
       const heads = outline(text)
       if (section !== undefined && section !== null && String(section).trim() !== '') {
         const h = findSection(heads, section)
         return `${head}\n\n${page(text.slice(h.start, h.end).trimEnd(), offset, maxChars, `section ${heads.indexOf(h) + 1} and `)}`
       }
-      if (offset === undefined && text.length > OUTLINE_OVER && heads.length) {
-        const min = Math.min(...heads.map(h => h.level))
-        const lines = heads.map((h, i) => `${'  '.repeat(h.level - min)}${i + 1}. ${h.title} (${chars(h.end - h.start)})`)
-        const start = text.slice(0, START_CHARS)
-        return `${head}\n\n${chars(text.length)} characters, so the outline first. Pass section (a number or heading) to read a part, or offset 0 to read in order.\n` +
-          `${lines.join('\n')}\n\nStart:\n${start}${start.length < text.length ? '…' : ''}`
+      if (offset === undefined && (text.length > OUTLINE_OVER || outlineFrom !== undefined) && heads.length) {
+        return `${head}\n\n${outlinePage(text, heads, outlineFrom, maxChars)}`
       }
       return `${head}\n\n${page(text, offset, maxChars)}`
     }
@@ -530,8 +583,10 @@ const tools = [
       const note = await resolveNote(ref, noteCache())
       if (note.isProtected) throw new TriliumError(`${named(note)}: ${PROTECTED}`)
       if (note.type !== 'text') throw new TriliumError(`${named(note)} is a ${note.type} note: only text notes can be added to.`)
-      const old = await etapi('GET', `/notes/${enc(note.noteId)}/content`, { as: 'text' })
-      await etapi('PUT', `/notes/${enc(note.noteId)}/content`, { body: old + html, as: 'text' })
+      await oneAtATime(note.noteId, async () => {
+        const old = await etapi('GET', `/notes/${enc(note.noteId)}/content`, { as: 'text' })
+        await etapi('PUT', `/notes/${enc(note.noteId)}/content`, { body: old + html, as: 'text' })
+      })
       return `Added ${html.length} characters of HTML to the end of ${named(note)}.`
     }
   },
@@ -630,4 +685,4 @@ if (require.main === module) {
   })
 }
 
-module.exports = { htmlToText, textToHtml, contentHtml }
+module.exports = { htmlToText, textToHtml, contentHtml, outline }

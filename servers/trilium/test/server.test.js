@@ -7,7 +7,7 @@ const http = require('http')
 const path = require('path')
 const { spawn } = require('child_process')
 const { createInterface } = require('readline')
-const { htmlToText, textToHtml } = require('../server')
+const { htmlToText, textToHtml, contentHtml, outline } = require('../server')
 
 const SERVER = path.join(__dirname, '..', 'server.js')
 const TOKEN = 'tok_FAKE-etapi-SECRET+9z/Q='
@@ -58,7 +58,16 @@ function fakeTrilium() {
       '<li><label class="todo-list__label"><input type="checkbox" disabled="disabled"><span>open item</span></label></li></ul>' +
       '<pre><code class="language-text-plain">if (a &lt; b) {\n  x = "q"\n}</code></pre><p>after&nbsp;code</p>'
   })
+  // Outside the tree (no parent), so the tree's index and lists don't change: a note with 2,000 headings, and one with
+  // a long title and many labels.
+  add({ noteId: 'archive', title: 'Archive', parentNoteIds: [] })
+  add({ noteId: 'many', title: 'Many', parentNoteIds: ['archive'], content: Array.from({ length: 2000 }, (_, i) => `<h2>Heading ${i + 1}</h2><p>body</p>`).join('') })
+  add({ noteId: 'tagged', title: 'T'.repeat(500), parentNoteIds: ['archive'], attributes: Array.from({ length: 200 }, (_, i) => label(`tag${i}`, 'v'.repeat(200))) })
   const requests = []
+  // gate: hold each GET of this note's content until a second one arrives (two appends reading at once: a lost update)
+  // or 300 ms pass (the second is queued behind the first, as it should be). maxHeld is the most held at once.
+  const gate = { id: null, held: [], maxHeld: 0 }
+  const release = () => { for (const r of gate.held.splice(0)) r() }
   const json = (res, status, data) => { res.statusCode = status; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(data)) }
   const fail = (res, status, code, message) => json(res, status, { status, code, message })
   const view = ({ content, ...n }) => n
@@ -89,6 +98,12 @@ function fakeTrilium() {
         if (!note) return fail(res, 404, 'NOTE_NOT_FOUND', `Note '${id}' not found.`)
         if (!m[2]) return json(res, 200, view(note))
         if (note.isProtected) return fail(res, 400, 'NOTE_IS_PROTECTED', 'Note is protected')
+        if (req.method === 'GET' && id === gate.id) {
+          gate.held.push(() => { res.setHeader('Content-Type', 'text/html'); res.end(note.content) })
+          gate.maxHeld = Math.max(gate.maxHeld, gate.held.length)
+          if (gate.held.length >= 2) return release()
+          return setTimeout(release, 300)
+        }
         if (req.method === 'GET') { res.setHeader('Content-Type', 'text/html'); return res.end(note.content) }
         if (req.method === 'PUT') { note.content = body; res.statusCode = 204; return res.end() }
       }
@@ -112,6 +127,7 @@ function fakeTrilium() {
   return {
     notes,
     requests,
+    gate,
     writes: () => requests.filter(r => r.method !== 'GET'),
     start: () => new Promise(r => server.listen(0, '127.0.0.1', () => r(`http://127.0.0.1:${server.address().port}`))),
     close: () => new Promise(r => { server.closeAllConnections?.(); server.close(r) })
@@ -372,6 +388,71 @@ test('append: reads the content, adds text or code to its end, and writes it bac
   assert.ok(r.isError && r.text.includes('is a code note'), r.text)
   r = await srv.call('trilium_append_to_note', { note: 'builds' })
   assert.ok(r.isError && r.text.includes('Give content or code'), r.text)
+  await srv.close()
+})
+
+test('append: two at once to one note (by id and by title path) both land: the second waits for the first', async () => {
+  const srv = start()
+  fake.gate.id = 'builds'
+  const [a, b] = await Promise.all([
+    srv.call('trilium_append_to_note', { note: 'builds', content: 'first' }),
+    srv.call('trilium_append_to_note', { note: 'Gaming/PoE/Builds', content: 'second' })
+  ])
+  assert.ok(!a.isError && !b.isError, `${a.text}\n${b.text}`)
+  const content = fake.notes.get('builds').content
+  assert.ok(content.includes('<p>first</p>') && content.includes('<p>second</p>'), content)
+  assert.strictEqual(fake.gate.maxHeld, 1, 'the two appends read the content at the same time')
+  // A failed append doesn't hold up the next one.
+  fake.gate.id = null
+  assert.ok((await srv.call('trilium_append_to_note', { note: 'builds', format: 'bad', content: 'x' })).isError)
+  assert.ok(!(await srv.call('trilium_append_to_note', { note: 'builds', content: 'third' })).isError)
+  assert.ok(fake.notes.get('builds').content.endsWith('<p>third</p>'))
+  await srv.close()
+})
+
+test('code blocks read back exactly: trailing spaces and tabs, several blank lines, ``` lines and backslashes', async () => {
+  const code = `line with trailing spaces  \n\n\n\nnext\t\n\`\`\`js\n# not a heading\n\`\`\`\n${WIN_SHARE}\n${REGEX}`
+  // Unit: the prose around it is tidied, the code isn't; the fence is longer than any ``` inside.
+  assert.strictEqual(htmlToText(contentHtml({ content: 'a  \n\n\n\nb', code })), `a\n\nb\n\n\`\`\`\`\n${code}\n\`\`\`\``)
+  assert.deepStrictEqual(outline(htmlToText(`<h2>Real</h2>${contentHtml({ code })}<h2>Also real</h2>`)).map(h => h.title), ['Real', 'Also real'])
+  // Through the server: create, then read; the block between the fences is the code.
+  const srv = start()
+  const r = await srv.call('trilium_create_note', { parent: 'root', title: 'Code', code })
+  const id = /\((new\d+)\)/.exec(r.text)[1]
+  const read = await srv.call('trilium_read_note', { note: id })
+  assert.strictEqual(/\n````\n([\s\S]*)\n````$/.exec(read.text)?.[1], code, read.text)
+  await srv.close()
+})
+
+test('a note with 2,000 headings: the outline stays within maxChars, says what it left out, and outlineFrom pages on', async () => {
+  const srv = start()
+  let r = await srv.call('trilium_read_note', { note: 'many' })
+  assert.ok(r.text.length < 8000 + 300, `${r.text.length} characters`)
+  const m = /\n\[Headings 1–(\d+) of 2000\. Pass outlineFrom (\d+) for more\.\]\n/.exec(r.text)
+  assert.ok(m && Number(m[2]) === Number(m[1]) + 1, r.text.slice(-300))
+  assert.ok(r.text.includes('\n1. Heading 1 (') && !r.text.includes('Heading 2000 ('))
+  assert.ok(r.text.includes('\n\nStart:\n## Heading 1'), 'the first page has the start')
+  r = await srv.call('trilium_read_note', { note: 'many', outlineFrom: Number(m[2]) })
+  assert.ok(r.text.includes(`\n${m[2]}. Heading ${m[2]} (`) && !r.text.includes('\n1. Heading 1 (') && !r.text.includes('Start:'), r.text.slice(0, 400))
+  r = await srv.call('trilium_read_note', { note: 'many', outlineFrom: 1990 })
+  assert.ok(r.text.includes('\n2000. Heading 2000 (') && !r.text.includes('[Headings'), r.text.slice(-200))
+  r = await srv.call('trilium_read_note', { note: 'many', maxChars: 100 })
+  assert.ok(r.text.length < 500 && r.text.includes('[Headings 1–'), `${r.text.length}: ${r.text}`)
+  r = await srv.call('trilium_read_note', { note: 'many', section: '2000' })
+  assert.ok(r.text.endsWith('\n\n## Heading 2000\n\nbody'), r.text.slice(-100))
+  r = await srv.call('trilium_read_note', { note: 'many', section: 'Heading' })
+  assert.ok(r.isError && r.text.length < 1000 && r.text.includes(', +1980 more'), r.text)
+  r = await srv.call('trilium_read_note', { note: 'many', section: 'Nope' })
+  assert.ok(r.isError && r.text.length < 1000 && r.text.includes(', +1980 more'), r.text)
+  await srv.close()
+})
+
+test('a long title and 200 long labels: the header, search rows and errors stay bounded', async () => {
+  const srv = start()
+  let r = await srv.call('trilium_read_note', { note: 'tagged' })
+  assert.ok(r.text.length < 2500 && r.text.includes(`# ${'T'.repeat(99)}… (tagged)`) && r.text.includes(' +170 more labels'), `${r.text.length}`)
+  r = await srv.call('trilium_search', { query: '#tag0' })
+  assert.ok(r.text.length < 800 && r.text.includes(' +192 more labels'), `${r.text.length}: ${r.text}`)
   await srv.close()
 })
 
