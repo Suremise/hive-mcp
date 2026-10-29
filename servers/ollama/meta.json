@@ -1,0 +1,10 @@
+{
+  "version": "1.0.0",
+  "description": "Hand reading and drafting work to local Ollama models, to save cloud tokens.",
+  "tags": ["ollama", "local-models", "tokens"],
+  "requires": {
+    "os": ["windows", "macos", "linux"],
+    "node": ">=18",
+    "apps": ["Ollama, running, with a model pulled"]
+  }
+}
