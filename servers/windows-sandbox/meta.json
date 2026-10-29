@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "description": "Test builds on a clean, throwaway Windows in Windows Sandbox.",
+  "tags": ["testing", "windows", "sandbox"],
+  "requires": {
+    "os": ["windows"],
+    "windows": {
+      "editions": ["Pro", "Enterprise", "Education"],
+      "minBuild": 26100,
+      "features": ["Windows Sandbox"]
+    },
+    "node": ">=18"
+  }
+}

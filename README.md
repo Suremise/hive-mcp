@@ -24,11 +24,11 @@ Each server's README covers its setup, tools, configuration, safety notes and li
 - **`trilium`:** a Trilium Notes (TriliumNext) server you can reach, and an ETAPI token for it.
 - **`windows-sandbox`:** Windows 11 **Pro, Enterprise or Education, 24H2 or later**, with virtualisation turned on in
   the firmware and the **Windows Sandbox** optional feature installed. (Windows Home has no Windows Sandbox.)
-- Packing the zips for Hive (below) needs Windows' built-in `tar.exe`.
 
 ## Install
 
-Clone the repo anywhere (or download a release zip and unpack it). Nothing needs to be built or installed:
+Clone the repo anywhere (or download a server's zip from a [release](https://github.com/Suremise/hive-mcp/releases)
+and unpack it). Nothing needs to be built or installed:
 
 ```powershell
 git clone https://github.com/Suremise/hive-mcp.git C:\path\to\hive-mcp
@@ -94,11 +94,11 @@ project. Each server's README has a "Multiple projects" section.
 
 Hive can also add a server from a zip:
 
-1. Pack the zips:
+1. Download it from a [release](https://github.com/Suremise/hive-mcp/releases), or pack the zips yourself:
    ```powershell
    cd C:\path\to\hive-mcp
-   node scripts\pack.mjs            # every server, into dist\<name>.zip
-   node scripts\pack.mjs ollama     # just this one
+   node scripts\pack.mjs            # every server, into dist\<name>.zip, plus dist\catalog.json
+   node scripts\pack.mjs ollama     # just this one (no catalog.json)
    ```
 2. In Hive 0.6.0 or later, open the **MCP** view, choose **Add MCP Server from File**, and pick the zip. Hive unpacks
    it into the workspace's `.hive/mcp/<name>/`.
@@ -117,6 +117,76 @@ Tests and probes stay out. `pack.mjs` checks each zip against Hive's rules for t
 - the file and size limits;
 - the definition's `${HIVE_MCP_DIR}/<name>/…` references point to files in the zip.
 
+The zips are reproducible: packing the same files gives the same bytes (entries sorted, one fixed time, no owners
+or extra fields), so a zip's sha256 changes only when its files do. Packing needs nothing but Node.
+
+## The catalogue
+
+Each [release](https://github.com/Suremise/hive-mcp/releases) holds every server's zip and a `catalog.json` that
+lists them, for Hive's MCP view or any client to offer the servers, download one and check it. The latest is always
+at:
+
+```
+https://github.com/Suremise/hive-mcp/releases/latest/download/catalog.json
+```
+
+A client downloads a server's `zip.url`, checks its SHA-256 against `zip.sha256` (and its size against `zip.size`),
+and uses the zip only when they match. Anyone can publish a catalogue of their own servers in this format.
+`npm run pack` makes ours (`dist/catalog.json`) from each server's `servers/<name>/meta.json` and its zip;
+[RELEASING.md](RELEASING.md) says how a release is made.
+
+```json
+{
+  "schemaVersion": 1,
+  "name": "Suremise/hive-mcp",
+  "homepage": "https://github.com/Suremise/hive-mcp",
+  "release": "v1.0.0",
+  "servers": [
+    {
+      "name": "windows-sandbox",
+      "version": "1.0.0",
+      "description": "Test builds on a clean, throwaway Windows in Windows Sandbox.",
+      "tags": ["testing", "windows", "sandbox"],
+      "requires": {
+        "os": ["windows"],
+        "windows": { "editions": ["Pro", "Enterprise", "Education"], "minBuild": 26100, "features": ["Windows Sandbox"] },
+        "node": ">=18"
+      },
+      "homepage": "https://github.com/Suremise/hive-mcp/tree/v1.0.0/servers/windows-sandbox",
+      "zip": {
+        "url": "https://github.com/Suremise/hive-mcp/releases/download/v1.0.0/windows-sandbox.zip",
+        "sha256": "<64 lower-case hex digits>",
+        "size": 72903
+      }
+    }
+  ]
+}
+```
+
+| Field | Required | What it holds |
+|---|---|---|
+| `schemaVersion` | yes | `1`, this format. A reader refuses a catalogue whose `schemaVersion` it doesn't know. |
+| `name` | yes | The catalogue's source, in one line (here the GitHub repo). |
+| `homepage` | no | An https URL for the source. |
+| `release` | no | The release the catalogue came with. |
+| `servers` | yes | A list of servers, each once by `name`. |
+| `servers[].name` | yes | Lower-case letters, digits and `-`; the zip's one top folder has this name. |
+| `servers[].version` | yes | `x.y.z`. A changed zip always comes with a higher version. |
+| `servers[].description` | yes | One line, at most 200 characters. The zip's definition has the long one. |
+| `servers[].tags` | yes | Lower-case words (`a-z`, `0-9`, `-`), each once; may be empty. |
+| `servers[].requires.os` | yes | Where it runs: one or more of `windows`, `macos`, `linux`. |
+| `servers[].requires.windows` | no | Only with `os` `windows`: `editions` (of `Home`, `Pro`, `Enterprise`, `Education`), `minBuild` (a whole number: 26100 is 24H2) and `features` (optional Windows features it needs, by name). A field left out means any. |
+| `servers[].requires.node` | no | The Node it needs on `PATH`, as a minimum: `">=18"`. |
+| `servers[].requires.docker` | no | `true` when it needs Docker; left out means no. |
+| `servers[].requires.apps` | no | Anything else it needs, one line each, for people to read (e.g. "Ollama, running, with a model pulled"). |
+| `servers[].homepage` | no | An https URL for the server's own page. |
+| `servers[].zip.url` | yes | An https URL for its zip, in the layout above. |
+| `servers[].zip.sha256` | yes | The zip's SHA-256, 64 lower-case hex digits. |
+| `servers[].zip.size` | yes | The zip's size in bytes. |
+
+Within `schemaVersion` 1 fields may be added, never changed or removed, so a reader ignores fields it doesn't know.
+A change a reader can't ignore raises `schemaVersion`. `scripts/catalog.mjs` (`validate`) is the reference check.
+
 ## Tests
 
 ```powershell
@@ -131,8 +201,10 @@ for what each test covers.
 
 ## Layout
 
-- `servers/<name>/`: one server per folder, holding its code, `README.md` and a `hive-mcp.example.json`.
-- `scripts/pack.mjs`: packs each server as `dist/<name>.zip`.
+- `servers/<name>/`: one server per folder, holding its code, `README.md`, a `hive-mcp.example.json` and its
+  `meta.json` (its version, one-line description, tags and requirements, for the catalogue).
+- `scripts/pack.mjs`: packs each server as `dist/<name>.zip`, and `dist/catalog.json` (`catalog.mjs`, `zip.mjs`).
+- `scripts/release.mjs`: checks a release and, with `--publish`, makes it ([RELEASING.md](RELEASING.md)).
 - `shared/roots.js`: the MCP roots rules the servers share (which project folders a server may reach). Each server
   ships its own copy, so its zip is self-contained, and `npm test` checks that the copies match.
 - `servers/windows-sandbox/scenarios/`, `inside/hive/`, `RELEASE-TESTING.md` and `probes/`: Hive's own use of the

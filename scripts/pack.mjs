@@ -1,15 +1,16 @@
 // Packs each server as dist/<name>.zip in the layout Hive's Add MCP Server from File takes: one top folder
 // named after the server, holding its definition (hive-mcp.json, else hive-mcp.example.json) and the files it runs.
-// Dev-only files (probes, tests) stay out. Each zip is then checked against Hive's rules. Built-ins and Windows' tar.exe.
-//   node scripts/pack.mjs [name ...]
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+// Dev-only files (probes, tests) stay out. Each zip is then checked against Hive's rules, and, when every server is
+// packed, dist/catalog.json lists them for a release (catalog.mjs). The zips are reproducible: the same files give the
+// same bytes (zip.mjs). Node built-ins only.
+//   node scripts/pack.mjs [--out <dir>] [name ...]
+import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { spawnSync } from 'node:child_process'
+import { zip } from './zip.mjs'
+import * as catalog from './catalog.mjs'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const DIST = join(ROOT, 'dist')
-const TAR = join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe')
 
 /** What each zip holds: [from, to] relative to the server's folder (or the repo, for LICENSE). */
 const SERVERS = {
@@ -49,8 +50,8 @@ function entries(data) {
 const unsafePart = p => !p || p === '.' || p === '..' || /[<>:"|?*\x00-\x1f]/.test(p) || /[. ]$/.test(p) || /^(con|prn|aux|nul|com\d|lpt\d)(\.|$)/i.test(p)
 
 /** Problems with a server zip under Hive's rules; [] when Hive would add it as `name`. */
-function check(zip, name) {
-  const all = entries(readFileSync(zip))
+function check(data, name) {
+  const all = entries(data)
   const files = all.filter(e => !e.name.replace(/\\/g, '/').endsWith('/'))
   const problems = []
   for (const e of all) if (e.link) problems.push(`link: ${e.name}`)
@@ -82,16 +83,15 @@ function references(def, name, files) {
   return { refs, problems }
 }
 
-/** Each staged script's relative require('./…') must name a file in the zip, so a shared module can't be left out. */
-function localRequires(dir, name, files) {
-  const inZip = new Set(files.map(e => e.name.replace(/\\/g, '/').toLowerCase()))
+/** Each packed script's relative require('./…') must name a file in the zip, so a shared module can't be left out. */
+function localRequires(packed) {
+  const inZip = new Set(packed.map(f => f.name.toLowerCase()))
   const problems = []
-  for (const e of files) {
-    if (!/\.(c?js|mjs)$/i.test(e.name)) continue
-    const rel = e.name.slice(name.length + 1)
-    for (const m of readFileSync(join(dir, rel), 'utf8').matchAll(/require\(\s*['"](\.{1,2}\/[^'"]+)['"]\s*\)/g)) {
-      const target = posix.normalize(posix.join(posix.dirname(e.name.replace(/\\/g, '/')), m[1]))
-      if (![target, `${target}.js`, `${target}/index.js`].some(t => inZip.has(t.toLowerCase()))) problems.push(`${e.name} requires ${m[1]}, which isn't in the zip`)
+  for (const f of packed) {
+    if (!/\.(c?js|mjs)$/i.test(f.name)) continue
+    for (const m of f.data.toString('utf8').matchAll(/require\(\s*['"](\.{1,2}\/[^'"]+)['"]\s*\)/g)) {
+      const target = posix.normalize(posix.join(posix.dirname(f.name), m[1]))
+      if (![target, `${target}.js`, `${target}/index.js`].some(t => inZip.has(t.toLowerCase()))) problems.push(`${f.name} requires ${m[1]}, which isn't in the zip`)
     }
   }
   return problems
@@ -99,47 +99,70 @@ function localRequires(dir, name, files) {
 
 /** Text files holding a CR: the repo stores LF (.gitattributes), so the installed copy would differ from the published
  * file by its line endings. A file with a NUL byte is binary and isn't checked, as git decides. */
-function crlfFiles(dir, name, files) {
-  const problems = []
-  for (const e of files) {
-    const data = readFileSync(join(dir, e.name.slice(name.length + 1)))
-    if (!data.includes(0) && data.includes(13)) problems.push(`CR line endings (the repo's copy is LF): ${e.name}`)
-  }
-  return problems
+function crlfFiles(packed) {
+  return packed.filter(f => !f.data.includes(0) && f.data.includes(13)).map(f => `CR line endings (the repo's copy is LF): ${f.name}`)
 }
 
-function pack(name) {
+/** The files under path (itself, if a file), as [{ name: '<under>/<relative>', data }], in name order. */
+function collect(path, under) {
+  if (!statSync(path).isDirectory()) return [{ name: under, data: readFileSync(path) }]
+  return readdirSync(path).sort().flatMap(n => collect(join(path, n), `${under}/${n}`))
+}
+
+/** Packs a server into out/<name>.zip, checked; returns the zip's bytes. */
+function pack(name, out) {
   const src = join(ROOT, 'servers', name)
-  const stage = join(DIST, '.stage')
-  rmSync(stage, { recursive: true, force: true })
+  const packed = [
+    ...SERVERS[name].flatMap(([from, to = from]) => collect(join(src, from), `${name}/${to}`)),
+    { name: `${name}/LICENSE`, data: readFileSync(join(ROOT, 'LICENSE')) }
+  ]
+  const data = zip(packed)
+  const file = join(out, `${name}.zip`)
+  rmSync(file, { force: true })
+  const c = check(data, name)
+  const def = JSON.parse(packed.find(f => f.name === `${name}/${c.def}`)?.data ?? '{}')
+  const ref = references(def, name, c.files)
+  const problems = [...c.problems, ...ref.problems, ...localRequires(packed), ...crlfFiles(packed)]
+  console.log(`${file}\n  ${c.files.length} files, definition ${name}/${c.def}, refers to ${ref.refs.join(', ')}`)
+  for (const e of c.files) console.log(`    ${e.name}`)
+  if (problems.length) throw new Error(`${name}.zip is not in Hive's layout:\n  ${problems.join('\n  ')}`)
+  writeFileSync(file, data)
+  return data
+}
+
+function main(argv) {
+  let out = join(ROOT, 'dist')
+  const names = []
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--out') out = resolve(argv[++i] ?? '')
+    else names.push(argv[i])
+  }
+  for (const n of names) if (!SERVERS[n]) { console.error(`Unknown server: ${n} (known: ${Object.keys(SERVERS).join(', ')})`); return 2 }
+  mkdirSync(out, { recursive: true })
+  const catalogFile = join(out, 'catalog.json')
   try {
-    for (const [from, to = from] of SERVERS[name]) cpSync(join(src, from), join(stage, name, to), { recursive: true })
-    cpSync(join(ROOT, 'LICENSE'), join(stage, name, 'LICENSE'))
-    const zip = join(DIST, `${name}.zip`)
-    rmSync(zip, { force: true })
-    const r = spawnSync(TAR, ['-a', '-c', '-f', zip, '-C', stage, name], { encoding: 'utf8' })
-    if (r.status !== 0) throw new Error(`tar.exe failed (${r.status}): ${r.stderr || r.error}`)
-    const c = check(zip, name)
-    const def = JSON.parse(readFileSync(join(stage, name, c.def), 'utf8'))
-    const ref = references(def, name, c.files)
-    const problems = [...c.problems, ...ref.problems, ...localRequires(join(stage, name), name, c.files), ...crlfFiles(join(stage, name), name, c.files)]
-    console.log(`${zip}\n  ${c.files.length} files, definition ${name}/${c.def}, refers to ${ref.refs.join(', ')}`)
-    for (const e of c.files) console.log(`    ${e.name}`)
-    if (problems.length) throw new Error(`${name}.zip is not in Hive's layout:\n  ${problems.join('\n  ')}`)
-    return zip
-  } finally {
-    rmSync(stage, { recursive: true, force: true })
+    const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
+    const servers = (names.length ? names : Object.keys(SERVERS)).map(name => {
+      const meta = catalog.readMeta(join(ROOT, 'servers', name), name)
+      return { name, meta, zip: pack(name, out) }
+    })
+    console.log('OK: each zip is in the layout Add MCP Server from File takes.')
+    if (names.length) {
+      rmSync(catalogFile, { force: true }) // it would no longer match the zips beside it
+      console.log('No catalog.json: it is made only when every server is packed.')
+      return 0
+    }
+    const c = catalog.build({ repo: catalog.githubRepo(pkg), version: pkg.version, servers })
+    const problems = catalog.validate(c)
+    if (problems.length) throw new Error(`catalog.json isn't valid:\n  ${problems.join('\n  ')}`)
+    writeFileSync(catalogFile, JSON.stringify(c, null, 2) + '\n')
+    console.log(`${catalogFile}\n  release ${c.release}: ${c.servers.map(s => `${s.name} ${s.version}`).join(', ')}`)
+    return 0
+  } catch (e) {
+    rmSync(catalogFile, { force: true })
+    console.error(`FAILED: ${e.message}`)
+    return 1
   }
 }
 
-const names = process.argv.slice(2)
-for (const n of names) if (!SERVERS[n]) { console.error(`Unknown server: ${n} (known: ${Object.keys(SERVERS).join(', ')})`); process.exit(2) }
-if (!existsSync(TAR)) { console.error(`Windows' tar.exe not found at ${TAR}`); process.exit(2) }
-mkdirSync(DIST, { recursive: true })
-try {
-  for (const n of names.length ? names : Object.keys(SERVERS)) pack(n)
-  console.log('OK: each zip is in the layout Add MCP Server from File takes.')
-} catch (e) {
-  console.error(`FAILED: ${e.message}`)
-  process.exit(1)
-}
+process.exitCode = main(process.argv.slice(2))
