@@ -268,7 +268,7 @@ async function main(argv) {
       await new Promise(r => setTimeout(r, 6000))
       await s.desktop(1, 's1-installed-apps')
       await s.run(1, '1. close Settings', 'powershell.exe -NoProfile -Command "Get-Process SystemSettings -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.Id -Force }"', { timeoutSec: 30 })
-      await time('1-2. first run, Agent Setup, both themes', () => s.drive(2, '1-2. first run', 'first-run', 's1'))
+      await time('1-2. first run, Provider Setup, both themes', () => s.drive(2, '1-2. first run', 'first-run', 's1'))
       await time('3. a CLI appears while Hive runs', () => s.drive(3, '3. CLI appears', 'cli-appears', 's3'))
       await time('6. a new workspace', () => s.drive(6, '6. new workspace', 'workspace', 's6'))
       await time('5. silent uninstall', () => s.ps(5, '5. uninstall', 'install.ps1', '-Exe "%LOCALAPPDATA%\\Programs\\Hive\\Uninstall Hive.exe" -Arguments "/S" -Name s5 -Uninstall', { timeoutSec: 300 }))

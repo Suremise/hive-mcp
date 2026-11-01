@@ -6,9 +6,9 @@
  * facts, shots, completed }) and window PNGs C:\out\<prefix>-<name>.png. completed is true only once the whole step ran
  * (the file is saved as it goes, so an interrupted step leaves a record without it). Network off, fake CLIs only.
  * Steps:
- *   first-run     scenarios 1 and 2: the first screen, no-CLI banners, Agent Setup's three providers, both themes
+ *   first-run     scenarios 1 and 2: the first screen, no-CLI banners, Provider Setup's three providers, both themes
  *   cli-appears   scenario 3: Claude Code turned on, a stand-in installer puts the e2e fake on the user PATH, and
- *                 Agent Setup's "Check again" finds it without restarting Hive
+ *                 Provider Setup's "Check again" finds it without restarting Hive
  *   workspace     scenario 6: a new workspace in the fresh install (its .hive, views and status), for the fresh-install comparison
  *   mark          scenario 4, before the upgrade: change two settings (user name, theme)
  *   after-upgrade scenario 4, after it: those settings kept, the version, a screenshot
@@ -74,13 +74,13 @@ async function api(route) {
   return r.json()
 }
 
-async function agentSetup() {
-  const dialog = page.locator('.dialog', { hasText: 'Agent Setup' })
+async function providerSetup() {
+  const dialog = page.locator('.dialog', { hasText: 'Provider Setup' })
   if (!(await dialog.count())) {
     await page.keyboard.press('Escape')
     await page.keyboard.press('Control+Shift+P')
     await sleep(400)
-    await page.keyboard.type('Agent Setup')
+    await page.keyboard.type('Provider Setup')
     await sleep(400)
     await page.keyboard.press('Enter')
   }
@@ -111,12 +111,12 @@ const steps = {
     const list = providers.providers || providers
     check('2.api-providers', 'Agent API: all three providers known, none on, none installed', Array.isArray(list) && list.length === 3 && list.every(p => !p.enabled && !p.installed), JSON.stringify(list))
 
-    const dialog = await agentSetup()
-    check('2.agent-setup-opens', 'Agent Setup opens', !!dialog, 'no dialog')
+    const dialog = await providerSetup()
+    check('2.agent-setup-opens', 'Provider Setup opens', !!dialog, 'no dialog')
     if (dialog) {
       const tabs = (await dialog.locator('.setup-tab').allInnerTexts()).map(t => t.trim())
       res.facts.setupTabs = tabs
-      check('2.agent-setup-three', 'Agent Setup offers all three: Claude Code, Codex, GitHub Copilot', ['Claude Code', 'Codex', 'GitHub Copilot'].every(n => tabs.some(t => t.startsWith(n))), JSON.stringify(tabs))
+      check('2.agent-setup-three', 'Provider Setup offers all three: Claude Code, Codex, GitHub Copilot', ['Claude Code', 'Codex', 'GitHub Copilot'].every(n => tabs.some(t => t.startsWith(n))), JSON.stringify(tabs))
       res.facts.gitRow = await dialog.locator('[data-git]').getAttribute('data-git').catch(() => null)
       await shot('agent-setup-dark')
       await theme('light')
@@ -138,21 +138,24 @@ const steps = {
     res.facts.before = on
     check('3.on-not-found', 'Claude Code turned on, not found yet', on && !on.found, JSON.stringify(on))
     const banner = (await page.locator('.providers-banner').allInnerTexts()).join(' | ')
-    check('3.banner-none-installed', 'The banner now says no CLI is installed and offers Agent Setup', /No coding agent CLI is installed/.test(banner), banner)
-    const dialog = await agentSetup()
+    check('3.banner-none-installed', 'The banner now says no CLI is installed and offers Provider Setup', /No coding agent CLI is installed/.test(banner) && /Provider Setup/.test(banner), banner)
+    const dialog = await providerSetup()
+    // Without the dialog the rest still runs and reports, each check failing with this reason rather than a crash.
+    const NO_DIALOG = 'no Provider Setup dialog (the command palette found no "Provider Setup" command, or it opened nothing)'
+    const dialogText = async () => (dialog ? dialog.innerText() : NO_DIALOG)
     if (dialog) await dialog.locator('.setup-tab', { hasText: 'Claude Code' }).click()
-    check('3.setup-not-installed', 'Agent Setup says "Claude Code is not installed"', dialog && /Claude Code is not installed/.test(await dialog.innerText()), dialog ? await dialog.innerText() : 'no dialog')
+    check('3.setup-not-installed', 'Provider Setup says "Claude Code is not installed"', dialog && /Claude Code is not installed/.test(await dialogText()), await dialogText())
     await shot('missing-dark')
 
     // The stand-in installer: the e2e fake Claude Code copied into the user's programs, on the user PATH (registry).
     res.facts.install = ps('& C:\\wsb-mcp\\hive\\fake-claude-install.ps1')
     const hivePath = await app.evaluate(() => process.env.PATH || process.env.Path || '')
     check('3.user-path', 'The new folder is on the user PATH, not on Hive\'s own PATH yet', !hivePath.toLowerCase().includes('fakeclaude'), hivePath.slice(0, 300))
-    await dialog.locator('button', { hasText: 'Check again' }).click()
-    const found = await until(async () => { const i = (await inv('provider:info'))['claude-code']; return i && !i.checking && i.found && i }, 30_000)
+    if (dialog) await dialog.locator('button', { hasText: 'Check again' }).click()
+    const found = dialog && await until(async () => { const i = (await inv('provider:info'))['claude-code']; return i && !i.checking && i.found && i }, 30_000)
     res.facts.after = found || (await inv('provider:info'))['claude-code']
-    check('3.check-again-finds', '"Check again" finds it, without restarting Hive', found && found.source === 'PATH' && found.version === '2.1.999' && /claude\.cmd$/i.test(found.path || '') && app.process().pid === pid, JSON.stringify(res.facts.after))
-    check('3.setup-found', 'Agent Setup shows "Claude Code 2.1.999 — found via …"', /Claude Code 2\.1\.999 — found via/.test(await dialog.innerText()), await dialog.innerText())
+    check('3.check-again-finds', '"Check again" finds it, without restarting Hive', found && found.source === 'PATH' && found.version === '2.1.999' && /claude\.cmd$/i.test(found.path || '') && app.process().pid === pid, dialog ? JSON.stringify(res.facts.after) : `${NO_DIALOG}, so "Check again" was never pressed; ${JSON.stringify(res.facts.after)}`)
+    check('3.setup-found', 'Provider Setup shows "Claude Code 2.1.999 — found via …"', dialog && /Claude Code 2\.1\.999 — found via/.test(await dialogText()), await dialogText())
     await shot('found-dark')
     await theme('light')
     await shot('found-light')

@@ -166,9 +166,9 @@ function compare(report, here) {
     ['Agent memory', 'none', 'in each CLI\'s home (~/.claude/projects/…), not read here by rule', 'not compared (needs a model)']
   ]
   const env = [
-    ['Git', fresh.git ? 'found' : `missing${fresh.gitMissing ? ': Hive shows its Git warning (status bar "Git", Agent Setup "Git not found")' : ''}`, onPath('git.exe') ? 'on PATH' : 'not on PATH'],
+    ['Git', fresh.git ? 'found' : `missing${fresh.gitMissing ? ': Hive shows its Git warning (status bar "Git", Provider Setup "Git not found")' : ''}`, onPath('git.exe') ? 'on PATH' : 'not on PATH'],
     ['Node', fresh.node ? 'found' : 'missing (the checks map the host\'s, read-only)', onPath('node.exe') ? 'on PATH' : 'not on PATH'],
-    ['Coding-agent CLIs', `banner: "${fresh.banner.replace(/\s+/g, ' ')}"; Agent Setup tabs: ${list(fresh.setupTabs)}`, ['claude', 'codex', 'copilot'].filter(c => ['.exe', '.cmd'].some(x => onPath(c + x))).join(', ') || 'none on PATH']
+    ['Coding-agent CLIs', `banner: "${fresh.banner.replace(/\s+/g, ' ')}"; Provider Setup tabs: ${list(fresh.setupTabs)}`, ['claude', 'codex', 'copilot'].filter(c => ['.exe', '.cmd'].some(x => onPath(c + x))).join(', ') || 'none on PATH']
   ]
   return { fresh, here, rows, env }
 }
