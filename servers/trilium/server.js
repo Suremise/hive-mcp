@@ -9,8 +9,16 @@
  * Self-contained on purpose: only Node built-ins (Node 18+ for fetch), so it runs without npm install.
  */
 const { createInterface } = require('readline')
+const fs = require('fs')
+const { join } = require('path')
 
-const VERSION = '1.0.0'
+// The version is the catalogue's: meta.json, beside this file in the repo and in its zip. No second copy here.
+const VERSION = (() => {
+  try {
+    const v = JSON.parse(fs.readFileSync(join(__dirname, 'meta.json'), 'utf8')).version
+    return typeof v === 'string' && v.trim() ? v : 'unknown'
+  } catch { return 'unknown' }
+})()
 const BASE = String(process.env.TRILIUM_URL || '').trim().replace(/\/+$/, '').replace(/\/etapi$/i, '')
 const TOKEN = String(process.env.TRILIUM_ETAPI_TOKEN || '').trim()
 const READ_ONLY = /^(1|true|yes)$/i.test(String(process.env.TRILIUM_READ_ONLY || '').trim())

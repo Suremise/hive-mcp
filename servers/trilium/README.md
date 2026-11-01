@@ -5,7 +5,7 @@ An MCP server that lets agents search, read and add to your notes in [Trilium No
 titles, reads long notes outline first, and gets plain compact text back, never JSON or raw HTML. It runs over stdio
 (`node server.js`) and works with Hive or any other MCP client.
 
-It uses only Node built-ins: no dependencies, no `npm install`. Version 1.0.0. MIT licence ([LICENSE](../../LICENSE)).
+It uses only Node built-ins: no dependencies, no `npm install`. Its version is in [meta.json](meta.json), which it reports to MCP clients. MIT licence ([LICENSE](../../LICENSE)).
 
 ## Requirements
 

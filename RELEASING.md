@@ -4,7 +4,10 @@ A release is one tag for the whole repo, `v<version>` from `package.json`, and a
 holding every server's zip and `catalog.json` ([README, The catalogue](README.md#the-catalogue)). Hive's MCP view
 reads the latest release's `catalog.json`, so a release is what users see. Only the maintainer releases.
 
-Each server keeps its own version in `servers/<name>/meta.json`, and the repo's version goes up with every release.
+Each server keeps its own version in `servers/<name>/meta.json`, and only there: the zip ships it beside
+`server.js`, which reads it at start-up and reports it to MCP clients (`serverInfo.version`), or `unknown` if it can't.
+Never write a version into `server.js`; `npm test` fails if a server reports any other. The repo's version goes up with
+every release.
 The zips are reproducible, so a server that didn't change keeps its sha256 from one release to the next; one whose
 files changed must have a higher version, and the release check refuses it otherwise.
 

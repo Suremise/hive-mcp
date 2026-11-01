@@ -3,7 +3,7 @@
 An MCP server that lets agents hand reading and drafting work to local [Ollama](https://ollama.com) models instead
 of using cloud tokens. It runs over stdio (`node server.js`) and works with Hive or any other MCP client.
 
-It uses only Node built-ins: no dependencies, no `npm install`. Version 1.2.0. MIT licence ([LICENSE](../../LICENSE)).
+It uses only Node built-ins: no dependencies, no `npm install`. Its version is in [meta.json](meta.json), which it reports to MCP clients. MIT licence ([LICENSE](../../LICENSE)).
 
 ## Requirements
 

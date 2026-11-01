@@ -75,11 +75,11 @@ test('pack is reproducible: two runs give the same bytes, and no entry carries a
   for (const s of SERVERS) for (const e of unzip(fs.readFileSync(path.join(a, `${s}.zip`)))) assert.deepStrictEqual(e.stamp, fixed, e.name)
 })
 
-test('a zip holds the repo files byte for byte, with sound CRCs, and no catalogue file of its own', async t => {
+test('a zip holds the repo files byte for byte, with sound CRCs, the server meta.json and no catalog.json', async t => {
   const { crc32 } = await load('zip.mjs')
   const out = pack(t, 'contents')
   const entries = unzip(fs.readFileSync(path.join(out, 'trilium.zip')))
-  assert.deepStrictEqual(entries.map(e => e.name), ['trilium/LICENSE', 'trilium/README.md', 'trilium/hive-mcp.example.json', 'trilium/server.js'])
+  assert.deepStrictEqual(entries.map(e => e.name), ['trilium/LICENSE', 'trilium/README.md', 'trilium/hive-mcp.example.json', 'trilium/meta.json', 'trilium/server.js'])
   for (const e of entries) {
     assert.strictEqual(crc32(e.data), e.crc, e.name)
     const src = e.name === 'trilium/LICENSE' ? path.join(REPO, 'LICENSE') : path.join(REPO, 'servers', e.name)

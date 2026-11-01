@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Search, read and add to your Trilium Notes over its ETAPI, lean on tokens.",
   "tags": ["notes", "trilium", "knowledge-base"],
   "requires": {
