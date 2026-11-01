@@ -6,7 +6,7 @@ It can start a Sandbox with the build folder mapped read-only, run commands and 
 screenshots, get files back from one writable folder, and always stop it again. It drives `wsb.exe` and runs over
 stdio (`node server.js`), with Hive or any other MCP client.
 
-It uses only Node built-ins: no dependencies, no `npm install`. Version 1.2.0. MIT licence ([LICENSE](../../LICENSE)).
+It uses only Node built-ins: no dependencies, no `npm install`. Its version is in [meta.json](meta.json), which it reports to MCP clients. MIT licence ([LICENSE](../../LICENSE)).
 
 ## Requirements
 

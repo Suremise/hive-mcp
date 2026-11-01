@@ -106,10 +106,12 @@ test('pack.mjs packs every server folder that has a meta.json, so none escapes t
   assert.ok(folders.length >= 3, `found only ${folders.join(', ')}`)
 })
 
-test('no server.js carries a version of its own', async () => {
+test('no server.js or README carries a version of its own', async () => {
   for (const name of await packed()) {
     const src = fs.readFileSync(path.join(REPO, 'servers', name, 'server.js'), 'utf8')
     assert.doesNotMatch(src, /['"`]\d+\.\d+\.\d+['"`]/, `${name}/server.js has a hard-coded x.y.z`)
+    const readme = fs.readFileSync(path.join(REPO, 'servers', name, 'README.md'), 'utf8')
+    assert.doesNotMatch(readme, /\bversion\s+v?\d+\.\d+\.\d+/i, `${name}/README.md states a version: point to meta.json instead`)
   }
 })
 
