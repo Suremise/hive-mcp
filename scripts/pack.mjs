@@ -18,8 +18,8 @@ const SERVERS = {
   ollama: [['server.js'], ['roots.js'], ['README.md'], ['hive-mcp.example.json', 'hive-mcp.json']],
   // It goes in as the example, to be checked before it is turned on: it maps folders into the Sandbox (WSB_TOOL_DIRS).
   'windows-sandbox': [
-    ['server.js'], ['wsb.js'], ['confine.js'], ['watchdog.js'], ['roots.js'], ['client.js'], ['inside'], ['scenarios'],
-    ['README.md'], ['RELEASE-TESTING.md'], ['hive-mcp.example.json']
+    ['server.js'], ['wsb.js'], ['confine.js'], ['watchdog.js'], ['roots.js'], ['client.js'], ['inside'],
+    ['README.md'], ['hive-mcp.example.json']
   ],
   // It goes in as the example, to be checked before it is turned on: TRILIUM_URL is the user's own Trilium.
   trilium: [['server.js'], ['README.md'], ['hive-mcp.example.json']]

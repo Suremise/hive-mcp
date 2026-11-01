@@ -207,8 +207,8 @@ for what each test covers.
 - `scripts/release.mjs`: checks a release and, with `--publish`, makes it ([RELEASING.md](RELEASING.md)).
 - `shared/roots.js`: the MCP roots rules the servers share (which project folders a server may reach). Each server
   ships its own copy, so its zip is self-contained, and `npm test` checks that the copies match.
-- `servers/windows-sandbox/scenarios/`, `inside/hive/`, `RELEASE-TESTING.md` and `probes/`: Hive's own use of the
-  Sandbox server, kept as an **example consumer**. The server doesn't need them (see its README).
+- `servers/windows-sandbox/probes/`: the scripts that measured `wsb.exe` before that server was written, kept to
+  check its behaviour again on a new Windows. They aren't in its zip.
 
 ## Issues and contributions
 

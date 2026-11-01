@@ -15,10 +15,10 @@ let seq = 0
 function scratch(name, fail = {}) {
   const dir = path.join(BASE, `${process.pid}-${++seq}-${name}`)
   fs.rmSync(dir, { recursive: true, force: true })
-  for (const d of ['home/.codex', 'builds/hive', 'tools/node', 'sandbox', 'outside']) fs.mkdirSync(path.join(dir, d), { recursive: true })
+  for (const d of ['home/.codex', 'builds/app', 'tools/node', 'sandbox', 'outside']) fs.mkdirSync(path.join(dir, d), { recursive: true })
   fs.writeFileSync(path.join(dir, 'home/.codex/auth.json'), 'SECRET')
   fs.writeFileSync(path.join(dir, 'outside/secret.txt'), 'SECRET')
-  fs.writeFileSync(path.join(dir, 'builds/hive/Hive-Setup-0.6.0.exe'), 'MZ')
+  fs.writeFileSync(path.join(dir, 'builds/app/App-Setup-0.6.0.exe'), 'MZ')
   const state = path.join(dir, 'stub.json')
   fs.writeFileSync(state, JSON.stringify({ fail }))
   return {
