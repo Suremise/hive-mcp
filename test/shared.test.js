@@ -12,7 +12,7 @@ const names = { env: 'X_ALLOWED_ROOTS', cwd: 'X_ROOTS_FROM_CWD=1' }
 const uri = p => pathToFileURL(p).href
 
 function scratch(name) {
-  const base = process.env.WSB_TEST_SCRATCH || path.join(process.env.LOCALAPPDATA || os.tmpdir(), 'hive-test', 'scratch', 'shared-tests')
+  const base = process.env.WSB_TEST_SCRATCH || path.join(require('./clean-scratch').SCRATCH, 'shared-tests')
   const dir = path.join(base, `${process.pid}-${name}`)
   fs.rmSync(dir, { recursive: true, force: true })
   for (const d of ['a/build', 'b/build', 'outside']) fs.mkdirSync(path.join(dir, d), { recursive: true })

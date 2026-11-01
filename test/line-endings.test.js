@@ -3,12 +3,11 @@
 const test = require('node:test')
 const assert = require('assert')
 const fs = require('fs')
-const os = require('os')
 const path = require('path')
 const { spawnSync } = require('child_process')
 
 const REPO = path.join(__dirname, '..')
-const ROOT = process.env.EOL_TEST_SCRATCH || path.join(process.env.LOCALAPPDATA || os.tmpdir(), 'hive-test', 'scratch', 'line-endings-tests')
+const ROOT = process.env.EOL_TEST_SCRATCH || path.join(require('./clean-scratch').SCRATCH, 'line-endings-tests')
 
 function git(cwd, ...args) {
   const r = spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8' })

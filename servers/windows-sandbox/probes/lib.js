@@ -4,7 +4,7 @@
  * Every probe runs its body through `withSandbox`, which always stops the Sandbox it started (also
  * after a failure or Ctrl+C) and then lists running Sandboxes to confirm none is left.
  *
- * All logs and scratch go to one folder under %LOCALAPPDATA%\hive-test\scratch, never the repo.
+ * All logs and scratch go to one folder under %LOCALAPPDATA%\hive-mcp-tests (test/clean-scratch.js's SCRATCH), never the repo.
  */
 const { execFile } = require('child_process')
 const { mkdirSync, writeFileSync, appendFileSync } = require('fs')
@@ -15,7 +15,7 @@ const WSB = join(process.env.LOCALAPPDATA, 'Microsoft', 'WindowsApps', 'wsb.exe'
 // One scratch folder per probe run: <root>\wsb-probe-<time>\<probe>. PROBE_SCRATCH overrides the root.
 function scratchDir(probe) {
   const root = process.env.PROBE_SCRATCH ||
-    join(process.env.LOCALAPPDATA, 'hive-test', 'scratch', 'wsb-probe-' + new Date().toISOString().replace(/[-:]/g, '').replace(/\..*/, '').replace('T', '-'))
+    join(require('../../../test/clean-scratch').SCRATCH, 'wsb-probe-' + new Date().toISOString().replace(/[-:]/g, '').replace(/\..*/, '').replace('T', '-'))
   const dir = join(root, probe)
   mkdirSync(dir, { recursive: true })
   return dir

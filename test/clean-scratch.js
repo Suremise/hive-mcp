@@ -11,7 +11,8 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 
-const SCRATCH = path.join(process.env.LOCALAPPDATA || os.tmpdir(), 'hive-test', 'scratch')
+/** The one root every test's scratch goes under (the probes' and smoke run's too), named after the repo. */
+const SCRATCH = path.join(process.env.LOCALAPPDATA || os.tmpdir(), 'hive-mcp-tests')
 /** Each suite's scratch folder (its env setting, else the default) and the files its scratch() always writes. */
 const TARGETS = {
   'windows-sandbox': { base: process.env.WSB_TEST_SCRATCH || path.join(SCRATCH, 'wsb-mcp-tests'), marker: ['stub.json'] },
@@ -56,4 +57,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { cleanScratch, TARGETS }
+module.exports = { cleanScratch, TARGETS, SCRATCH }

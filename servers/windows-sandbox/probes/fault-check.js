@@ -9,7 +9,7 @@ const assert = require('assert')
 
 process.env.PROBE_STOP_RETRY_MS = '10'
 process.env.PROBE_SCRATCH = process.env.PROBE_SCRATCH ||
-  require('path').join(process.env.LOCALAPPDATA, 'hive-test', 'scratch', 'wsb-probe-fault-check')
+  require('path').join(require('../../../test/clean-scratch').SCRATCH, 'wsb-probe-fault-check')
 
 // The stub: each scenario sets `script`, a function (args) => { code, stdout, stderr }; calls are recorded.
 let script = () => ({ code: 0, stdout: '', stderr: '' })

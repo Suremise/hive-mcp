@@ -11,7 +11,7 @@ const { createInterface } = require('readline')
 const { pathToFileURL } = require('url')
 
 const SERVER = path.join(__dirname, '..', 'server.js')
-// OLLAMA_TEST_SCRATCH, else %LOCALAPPDATA%\hive-test\scratch\ollama-tests; the repo's test/clean-scratch.js clears
+// OLLAMA_TEST_SCRATCH, else %LOCALAPPDATA%\hive-mcp-tests\ollama-tests; the repo's test/clean-scratch.js clears
 // earlier runs' folders there before `npm test`.
 const BASE = require('../../../test/clean-scratch').TARGETS.ollama.base
 

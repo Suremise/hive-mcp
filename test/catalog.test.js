@@ -3,7 +3,6 @@
 const test = require('node:test')
 const assert = require('assert')
 const fs = require('fs')
-const os = require('os')
 const path = require('path')
 const crypto = require('crypto')
 const zlib = require('zlib')
@@ -11,7 +10,7 @@ const { spawnSync } = require('child_process')
 const { pathToFileURL } = require('url')
 
 const REPO = path.join(__dirname, '..')
-const ROOT = process.env.CATALOG_TEST_SCRATCH || path.join(process.env.LOCALAPPDATA || os.tmpdir(), 'hive-test', 'scratch', 'catalog-tests')
+const ROOT = process.env.CATALOG_TEST_SCRATCH || path.join(require('./clean-scratch').SCRATCH, 'catalog-tests')
 const SERVERS = ['ollama', 'trilium', 'windows-sandbox']
 
 const load = name => import(pathToFileURL(path.join(REPO, 'scripts', name)).href)
