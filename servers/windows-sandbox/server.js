@@ -15,7 +15,13 @@ const { ID_RE, wsb, list, stopConfirmed, configXml, hostProblem, hint, connect, 
 const { segments, outRoot, readLive, pinRoot, readFile, listOut, globMatcher, parsePid, inside } = require('./confine')
 const { realDir, profileRefusal, rootsClient, allowedRoots } = require('./roots')
 
-const VERSION = '1.2.0'
+// The version is the catalogue's: meta.json, beside this file in the repo and in its zip. No second copy here.
+const VERSION = (() => {
+  try {
+    const v = JSON.parse(fs.readFileSync(join(__dirname, 'meta.json'), 'utf8')).version
+    return typeof v === 'string' && v.trim() ? v : 'unknown'
+  } catch { return 'unknown' }
+})()
 const ENABLED = process.env.WSB_MCP_ENABLED === '1'
 const DEFAULT_ROOT = join(process.env.LOCALAPPDATA || os.tmpdir(), 'windows-sandbox-mcp')
 const ROOT = process.env.WSB_SANDBOX_ROOT || DEFAULT_ROOT

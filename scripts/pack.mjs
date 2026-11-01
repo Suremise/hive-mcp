@@ -6,23 +6,24 @@
 //   node scripts/pack.mjs [--out <dir>] [name ...]
 import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { zip } from './zip.mjs'
 import * as catalog from './catalog.mjs'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
-/** What each zip holds: [from, to] relative to the server's folder (or the repo, for LICENSE). */
-const SERVERS = {
+/** What each zip holds: [from, to] relative to the server's folder (or the repo, for LICENSE). Each holds its meta.json,
+ * which its server.js reads its version from. */
+export const SERVERS = {
   // Its example needs no edits (defaults for a local Ollama), so it goes in as Hive's own definition.
-  ollama: [['server.js'], ['roots.js'], ['README.md'], ['hive-mcp.example.json', 'hive-mcp.json']],
+  ollama: [['server.js'], ['roots.js'], ['meta.json'], ['README.md'], ['hive-mcp.example.json', 'hive-mcp.json']],
   // It goes in as the example, to be checked before it is turned on: it maps folders into the Sandbox (WSB_TOOL_DIRS).
   'windows-sandbox': [
     ['server.js'], ['wsb.js'], ['confine.js'], ['watchdog.js'], ['roots.js'], ['client.js'], ['inside'],
-    ['README.md'], ['hive-mcp.example.json']
+    ['meta.json'], ['README.md'], ['hive-mcp.example.json']
   ],
   // It goes in as the example, to be checked before it is turned on: TRILIUM_URL is the user's own Trilium.
-  trilium: [['server.js'], ['README.md'], ['hive-mcp.example.json']]
+  trilium: [['server.js'], ['meta.json'], ['README.md'], ['hive-mcp.example.json']]
 }
 const DEFINITIONS = ['hive-mcp.json', 'hive-mcp.example.json']
 const MAX_FILES = 5000
@@ -165,4 +166,5 @@ function main(argv) {
   }
 }
 
-process.exitCode = main(process.argv.slice(2))
+// Imported (the tests read SERVERS), it packs nothing.
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) process.exitCode = main(process.argv.slice(2))

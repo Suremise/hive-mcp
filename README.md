@@ -202,7 +202,8 @@ for what each test covers.
 ## Layout
 
 - `servers/<name>/`: one server per folder, holding its code, `README.md`, a `hive-mcp.example.json` and its
-  `meta.json` (its version, one-line description, tags and requirements, for the catalogue).
+  `meta.json` (its version, one-line description, tags and requirements, for the catalogue; it ships in the zip,
+  and the server reports its version from it).
 - `scripts/pack.mjs`: packs each server as `dist/<name>.zip`, and `dist/catalog.json` (`catalog.mjs`, `zip.mjs`).
 - `scripts/release.mjs`: checks a release and, with `--publish`, makes it ([RELEASING.md](RELEASING.md)).
 - `shared/roots.js`: the MCP roots rules the servers share (which project folders a server may reach). Each server

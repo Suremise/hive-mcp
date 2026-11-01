@@ -15,7 +15,13 @@ const { readFile, readdir, stat, realpath } = require('fs/promises')
 const { join, resolve, relative, isAbsolute } = require('path')
 const { isInside, profileRefusal, rootsClient, allowedRoots } = require('./roots')
 
-const VERSION = '1.2.0'
+// The version is the catalogue's: meta.json, beside this file in the repo and in its zip. No second copy here.
+const VERSION = (() => {
+  try {
+    const v = JSON.parse(fs.readFileSync(join(__dirname, 'meta.json'), 'utf8')).version
+    return typeof v === 'string' && v.trim() ? v : 'unknown'
+  } catch { return 'unknown' }
+})()
 // Use the IP, not localhost: localhost resolution adds a ~2s Windows IPv6-fallback delay per call.
 const OLLAMA_HOST = (process.env.OLLAMA_HOST || 'http://127.0.0.1:11434').replace(/\/$/, '')
 const DEFAULT_MODEL = process.env.OLLAMA_DEFAULT_MODEL || ''
