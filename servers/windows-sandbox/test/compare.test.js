@@ -69,7 +69,7 @@ test('the comparison lists what only this workspace has, by name, and reads no n
   assert.match(md, /\| Project conventions \| .* \| app: CLAUDE.md, skill release-app \|/)
   assert.match(md, /\| Git \| missing: Hive shows its Git warning/)
   assert.match(md, /\| Node \| missing/)
-  assert.match(md, /Agent Setup tabs: Claude Code \(off\), Codex \(off\), GitHub Copilot \(off\)/)
+  assert.match(md, /Provider Setup tabs: Claude Code \(off\), Codex \(off\), GitHub Copilot \(off\)/)
 })
 
 test('sets are compared by name: same size with different names differs, a missing mode differs, order alone doesn\'t', () => {

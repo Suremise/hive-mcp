@@ -144,7 +144,7 @@ function evaluate(meta, files) {
     differences.push(`The previous release and this build both say **${meta.installerVersion}**: the in-app updater (no downgrades, only newer versions) would not offer this build, so the upgrade check is a reinstall over it, run by hand with the updater's arguments. The "Hive Desktop updated to …" notice can't show.`)
   }
   const s1 = files.s1
-  if (s1?.facts?.gitMissing || files['s1-state']?.git === false) differences.push('**No Git** on a fresh machine: Hive shows its Git warning (status bar "Git", Agent Setup "Git not found"). Expected; a fresh-install difference.')
+  if (s1?.facts?.gitMissing || files['s1-state']?.git === false) differences.push('**No Git** on a fresh machine: Hive shows its Git warning (status bar "Git", Provider Setup "Git not found"). Expected; a fresh-install difference.')
   return { meta, checks, passed, failed: checks.length - passed, notRun, differences, files }
 }
 
