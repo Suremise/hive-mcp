@@ -159,7 +159,7 @@ Errors name the cause:
 | `WSB_ALLOWED_ROOTS` | Optional. `;`-separated folders. With MCP roots it **narrows** them (a build must be under both); without, it is the list of folders builds may come from. See "Multiple projects". |
 | `WSB_ROOTS_FROM_CWD` | Optional. `1`: for a client that sends no MCP roots, the folder it started the server in is the root (never a drive root). |
 | `WSB_TOOL_DIRS` | `;`-separated `name=folder` pairs mapped read-only at `C:\tools\<name>`, e.g. `node=C:\Program Files\nodejs`. All optional: add what your tests need inside. |
-| `WSB_SANDBOX_ROOT` | Optional. Where per-run folders go (default `%LOCALAPPDATA%\windows-sandbox-mcp`): `<run>\out` (the writable folder), `config.xml`, `state.json`, `watchdog.json`/`.log`. Also `session-times.jsonl` (connect → user session times). Earlier versions used `%LOCALAPPDATA%\hive-test\sandbox`: nothing moves the runs already there, and the server no longer looks there, so delete that folder once you no longer need them (or set `WSB_SANDBOX_ROOT` to it to keep using it). |
+| `WSB_SANDBOX_ROOT` | Optional. Where per-run folders go (default `%LOCALAPPDATA%\windows-sandbox-mcp`): `<run>\out` (the writable folder), `config.xml`, `state.json`, `watchdog.json`/`.log`. Also `session-times.jsonl` (connect → user session times). Earlier versions used `%LOCALAPPDATA%\hive-test\sandbox`: nothing moves the runs already there, and the server no longer looks there, so delete that folder once you no longer need them (or set `WSB_SANDBOX_ROOT` to it to keep using it). The repo's tests, smoke run and probes wrote their scratch under `%LOCALAPPDATA%\hive-test\scratch` then; it is now `%LOCALAPPDATA%\hive-mcp-tests`, and nothing removes the old folder either. |
 | `WSB_SESSION_WAIT_MS` | Optional. How long `sandbox_start` waits for the user session (default 90000). |
 
 Test-only: `WSB_STUB` (a Node script run instead of `wsb.exe`), `WSB_STOP_RETRY_MS`, `WSB_WATCHDOG_CHECK_MS`.
@@ -291,10 +291,10 @@ node test\smoke.js --runs 3     # real Sandbox; skips cleanly where it's unavail
   - then, with no build mapped, a hard kill of the server that the watchdog must clean up.
 
   Every Sandbox it starts gets a fallback stop in a `finally`. Scratch goes to `WSB_TEST_SCRATCH` (default under
-  `%LOCALAPPDATA%\hive-test\scratch`).
+  `%LOCALAPPDATA%\hive-mcp-tests`).
 
 **Where the tests' output goes.** The automated tests write only to `WSB_TEST_SCRATCH` (default
-`%LOCALAPPDATA%\hive-test\scratch\wsb-mcp-tests`), never the repo: a folder per test, `<pid>-<n>-<name>`, with its
+`%LOCALAPPDATA%\hive-mcp-tests\wsb-mcp-tests`), never the repo: a folder per test, `<pid>-<n>-<name>`, with its
 fake profile, builds, sandbox runs and stub state. Before each `npm test`, the repo's `test\clean-scratch.js` removes
 earlier runs' folders (tested by `test\clean-scratch.test.js` there), so the latest run's output stays there for
 debugging and the folder holds about one run's worth. It removes only folders the tests made (that name, with their

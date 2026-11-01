@@ -4,7 +4,7 @@
  *   node test/smoke.js [--runs N] [--wait-min M]
  * --runs N repeats start/stop N times to time the user session (default 1); --wait-min waits up to M minutes for
  * another agent's Sandbox to finish first (default 0: skip). Scratch and logs go to WSB_TEST_SCRATCH
- * (default %LOCALAPPDATA%\hive-test\scratch\wsb-mcp-smoke-<time>); the summary is smoke.json there.
+ * (default %LOCALAPPDATA%\hive-mcp-tests\wsb-mcp-smoke-<time>); the summary is smoke.json there.
  * Exits non-zero if a check fails or cleanup can't be confirmed. Every Sandbox it starts gets a fallback stop in a
  * finally (ensureGone); one that can't be confirmed stopped is named in smoke.json → leftRunning.
  * For the fault tests (smoke-faults.test.js) only: with WSB_STUB set it drives the stub; SMOKE_FAULT=evidence makes
@@ -20,7 +20,7 @@ const RUNS = arg('--runs', 1)
 const KILL_WAIT_MS = Number(process.env.SMOKE_KILL_WAIT_MS || 60_000)
 const WAIT_MIN = arg('--wait-min', 0)
 const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*/, '').replace('T', '-')
-const DIR = process.env.WSB_TEST_SCRATCH || path.join(process.env.LOCALAPPDATA, 'hive-test', 'scratch', `wsb-mcp-smoke-${stamp}`)
+const DIR = process.env.WSB_TEST_SCRATCH || path.join(require('../../../test/clean-scratch').SCRATCH, `wsb-mcp-smoke-${stamp}`)
 const summary = { at: new Date().toISOString(), runs: [], checks: [] }
 const save = () => fs.writeFileSync(path.join(DIR, 'smoke.json'), JSON.stringify(summary, null, 2))
 const log = (...a) => console.log(`[${new Date().toISOString().slice(11, 19)}]`, ...a)

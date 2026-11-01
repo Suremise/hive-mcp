@@ -5,9 +5,9 @@ const assert = require('assert')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
-const { cleanScratch, TARGETS } = require('./clean-scratch')
+const { cleanScratch, TARGETS, SCRATCH } = require('./clean-scratch')
 
-const ROOT = process.env.CLEAN_TEST_SCRATCH || path.join(process.env.LOCALAPPDATA || os.tmpdir(), 'hive-test', 'scratch', 'clean-scratch-tests')
+const ROOT = process.env.CLEAN_TEST_SCRATCH || path.join(SCRATCH, 'clean-scratch-tests')
 const WSB = TARGETS['windows-sandbox'].marker
 const OLLAMA = TARGETS.ollama.marker
 
@@ -72,6 +72,22 @@ test('a live pid on a folder untouched for over an hour is a reused pid: the fol
 
 test('the suites\' scratch folders are the ones their tests write to', () => {
   assert.strictEqual(TARGETS['windows-sandbox'].base, require('../servers/windows-sandbox/test/helpers').BASE)
-  // The ollama test takes TARGETS.ollama.base itself; its default is unchanged.
-  assert.strictEqual(TARGETS.ollama.base, process.env.OLLAMA_TEST_SCRATCH || path.join(process.env.LOCALAPPDATA || os.tmpdir(), 'hive-test', 'scratch', 'ollama-tests'))
+  // The ollama test takes TARGETS.ollama.base itself.
+  assert.strictEqual(TARGETS.ollama.base, process.env.OLLAMA_TEST_SCRATCH || path.join(SCRATCH, 'ollama-tests'))
+  assert.strictEqual(TARGETS['windows-sandbox'].base, process.env.WSB_TEST_SCRATCH || path.join(SCRATCH, 'wsb-mcp-tests'))
+})
+
+test('every test, the smoke run and the probes put their scratch under the one root, SCRATCH', () => {
+  assert.strictEqual(SCRATCH, path.join(process.env.LOCALAPPDATA || os.tmpdir(), 'hive-mcp-tests'))
+  const repo = path.join(__dirname, '..')
+  const dirs = ['test', ...fs.readdirSync(path.join(repo, 'servers')).flatMap(s => ['test', 'probes'].map(d => path.join('servers', s, d)))]
+  const files = dirs.filter(d => fs.existsSync(path.join(repo, d))).flatMap(d => fs.readdirSync(path.join(repo, d)).filter(f => f.endsWith('.js')).map(f => path.join(d, f)))
+  assert.ok(files.length > 10, `found only ${files.length} files`)
+  for (const f of files) {
+    if (f === path.join('test', 'clean-scratch.test.js')) continue // this test names both on purpose
+    const src = fs.readFileSync(path.join(repo, f), 'utf8')
+    // A default of its own would be a join from LOCALAPPDATA or the temp folder; only clean-scratch.js makes SCRATCH.
+    if (f !== path.join('test', 'clean-scratch.js')) assert.doesNotMatch(src, /join\(\s*process\.env\.LOCALAPPDATA\b(?!,\s*'Microsoft')/, `${f} makes its own scratch root`)
+    assert.doesNotMatch(src, /'hive-test'/, `${f} still names hive-test`)
+  }
 })

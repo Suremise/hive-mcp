@@ -1,11 +1,10 @@
 // Each server reports its catalogue version, its meta.json's, as serverInfo.version: from the repo and from its packed
 // zip, for every server pack.mjs packs. Without a readable meta.json version it reports "unknown", never a guess.
-// Scratch (the packed and unpacked copies) goes under VERSION_TEST_SCRATCH, else %LOCALAPPDATA%\hive-test\scratch\
-// version-tests, removed after.
+// Scratch (the packed and unpacked copies) goes under VERSION_TEST_SCRATCH, else %LOCALAPPDATA%\hive-mcp-tests\version-tests
+// (clean-scratch.js's SCRATCH), removed after.
 const test = require('node:test')
 const assert = require('assert')
 const fs = require('fs')
-const os = require('os')
 const path = require('path')
 const zlib = require('zlib')
 const { spawn, spawnSync } = require('child_process')
@@ -13,7 +12,7 @@ const { createInterface } = require('readline')
 const { pathToFileURL } = require('url')
 
 const REPO = path.join(__dirname, '..')
-const ROOT = process.env.VERSION_TEST_SCRATCH || path.join(process.env.LOCALAPPDATA || os.tmpdir(), 'hive-test', 'scratch', 'version-tests')
+const ROOT = process.env.VERSION_TEST_SCRATCH || path.join(require('./clean-scratch').SCRATCH, 'version-tests')
 const REPLY_MS = 15_000
 
 const packed = () => import(pathToFileURL(path.join(REPO, 'scripts', 'pack.mjs')).href).then(m => Object.keys(m.SERVERS))
