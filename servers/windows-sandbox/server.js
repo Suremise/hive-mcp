@@ -4,7 +4,7 @@
  * folder, and always stop it again. Drives wsb.exe (Windows 11 24H2+).
  *
  * Self-contained on purpose: only Node built-ins (Node 18+), plain JSON-RPC over stdio, so it runs without npm install.
- * MIT licence, like Hive.
+ * MIT licence.
  */
 const { createInterface } = require('readline')
 const { spawn } = require('child_process')
@@ -15,9 +15,9 @@ const { ID_RE, wsb, list, stopConfirmed, configXml, hostProblem, hint, connect, 
 const { segments, outRoot, readLive, pinRoot, readFile, listOut, globMatcher, parsePid, inside } = require('./confine')
 const { realDir, profileRefusal, rootsClient, allowedRoots } = require('./roots')
 
-const VERSION = '1.1.0'
+const VERSION = '1.2.0'
 const ENABLED = process.env.WSB_MCP_ENABLED === '1'
-const DEFAULT_ROOT = join(process.env.LOCALAPPDATA || os.tmpdir(), 'hive-test', 'sandbox')
+const DEFAULT_ROOT = join(process.env.LOCALAPPDATA || os.tmpdir(), 'windows-sandbox-mcp')
 const ROOT = process.env.WSB_SANDBOX_ROOT || DEFAULT_ROOT
 const INSIDE = join(__dirname, 'inside')
 const SESSION_WAIT_MS = Number(process.env.WSB_SESSION_WAIT_MS || 90_000)

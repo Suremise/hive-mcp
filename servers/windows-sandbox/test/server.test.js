@@ -7,7 +7,7 @@ const { scratch, server, waitFor } = require('./helpers')
 
 const started = async (s, args = {}) => {
   const srv = server(s.env)
-  const r = await srv.call('sandbox_start', { build: path.join(s.dir, 'builds', 'hive'), ...args })
+  const r = await srv.call('sandbox_start', { build: path.join(s.dir, 'builds', 'app'), ...args })
   assert.ok(!r.isError, r.text)
   return { srv, r, id: s.read().sandboxes[0] }
 }
@@ -30,7 +30,7 @@ test('start refuses when list fails, when another Sandbox runs, and never stops 
   for (const [fail, re] of [[{ list: 'exit' }, /Can't tell whether a Sandbox is running/], [{ list: 'garbage' }, /Can't tell/], [{ others: ['99999999-0000-4000-8000-000000000000'] }, /didn't start is running/]]) {
     const s = scratch('srv-guard', fail)
     const srv = server(s.env)
-    const r = await srv.call('sandbox_start', { build: path.join(s.dir, 'builds', 'hive') })
+    const r = await srv.call('sandbox_start', { build: path.join(s.dir, 'builds', 'app') })
     assert.ok(r.isError && re.test(r.text), r.text)
     await srv.close()
     const calls = s.read().calls.map(c => c[0])
@@ -54,7 +54,7 @@ test('start refuses folders outside the allowed roots, the profile and its dot-f
     const r = await srv.call('sandbox_start', { build })
     assert.ok(r.isError && re.test(r.text), `${build}: ${r.text}`)
   }
-  const t = await srv.call('sandbox_start', { build: path.join(s.dir, 'builds', 'hive'), tools: ['claude-auth'] })
+  const t = await srv.call('sandbox_start', { build: path.join(s.dir, 'builds', 'app'), tools: ['claude-auth'] })
   assert.match(t.text, /Unknown tool "claude-auth"/)
   assert.ok(!(s.read().calls || []).some(c => c[0] === 'start'))
   await srv.close()
@@ -64,17 +64,17 @@ test('placeholders left in the config give a clear message saying what to set, b
   const s = scratch('srv-placeholders')
   const builds = 'C:\\path\\to\\your\\builds-' + process.pid
   const node = 'C:\\path\\to\\nodejs-' + process.pid
-  const srv = server({ ...s.env, WSB_SANDBOX_ROOT: 'C:\\Users\\<you>\\AppData\\Local\\hive-test\\sandbox', WSB_ALLOWED_ROOTS: builds, WSB_TOOL_DIRS: `node=${node}` })
+  const srv = server({ ...s.env, WSB_SANDBOX_ROOT: 'C:\\Users\\<you>\\AppData\\Local\\windows-sandbox-mcp', WSB_ALLOWED_ROOTS: builds, WSB_TOOL_DIRS: `node=${node}` })
   const status = (await srv.call('sandbox_status')).text
-  assert.match(status, /Config: WSB_SANDBOX_ROOT ".*<you>.*" isn't a usable folder \(a placeholder left in\?\): set a real folder, or remove it to use the default/)
+  assert.match(status, /Config: WSB_SANDBOX_ROOT ".*<you>.*" isn't a usable folder \(a placeholder left in\?\): set a real folder, or remove it to use the default .*\\windows-sandbox-mcp\./)
   assert.ok(status.includes(`Config: WSB_ALLOWED_ROOTS entry "${builds}" doesn't exist: set it to the folder your builds come from.`), status)
   assert.ok(status.includes(`Config: WSB_TOOL_DIRS entry "node=${node}" doesn't exist: set it to a real folder, or remove the entry.`), status)
-  let r = await srv.call('sandbox_start', { build: path.join(s.dir, 'builds', 'hive') })
+  let r = await srv.call('sandbox_start', { build: path.join(s.dir, 'builds', 'app') })
   assert.ok(r.isError && /WSB_SANDBOX_ROOT .* isn't a usable folder/.test(r.text), r.text)
   await srv.close()
 
   const srv2 = server({ ...s.env, WSB_ALLOWED_ROOTS: builds, WSB_TOOL_DIRS: `node=${node}` })
-  r = await srv2.call('sandbox_start', { build: path.join(s.dir, 'builds', 'hive') })
+  r = await srv2.call('sandbox_start', { build: path.join(s.dir, 'builds', 'app') })
   assert.ok(r.isError && r.text.includes(`can't be mapped: None of the WSB_ALLOWED_ROOTS folders can be used (WSB_ALLOWED_ROOTS entry "${builds}" doesn't exist).`), r.text)
   r = await srv2.call('sandbox_start', { build: path.join(builds, 'x') })
   assert.ok(r.isError && /None of the WSB_ALLOWED_ROOTS folders can be used/.test(r.text), r.text)
@@ -101,7 +101,7 @@ test('start → run → collect → stop, with the config the design asks for', 
   const st = s.read()
   const xml = st.lastConfig
   assert.match(xml, /<Networking>Disable/)
-  assert.match(xml, /hive<\/HostFolder><SandboxFolder>C:\\build<\/SandboxFolder><ReadOnly>true/)
+  assert.match(xml, /app<\/HostFolder><SandboxFolder>C:\\build<\/SandboxFolder><ReadOnly>true/)
   assert.match(xml, /node<\/HostFolder><SandboxFolder>C:\\tools\\node<\/SandboxFolder><ReadOnly>true/)
   assert.match(xml, /inside<\/HostFolder><SandboxFolder>C:\\wsb-mcp<\/SandboxFolder><ReadOnly>true/)
   assert.strictEqual(xml.match(/<ReadOnly>false/g).length, 1)
@@ -388,7 +388,7 @@ test("smartAppControl: off by default (nothing changed), only 'keep' or 'off', a
   const b = scratch('srv-sac-bad')
   const srv2 = server(b.env)
   for (const v of ['on', 'OFF', false]) {
-    const x = await srv2.call('sandbox_start', { build: path.join(b.dir, 'builds', 'hive'), smartAppControl: v })
+    const x = await srv2.call('sandbox_start', { build: path.join(b.dir, 'builds', 'app'), smartAppControl: v })
     assert.ok(x.isError && /smartAppControl is 'keep' \(default\) or 'off'/.test(x.text), x.text)
   }
   assert.ok(!(b.read().calls || []).some(c => c[0] === 'start'))
@@ -410,10 +410,10 @@ test("smartAppControl: off by default (nothing changed), only 'keep' or 'off', a
 })
 
 test('the Smart App Control change exists only as guest commands, sent only by the server through the run wrapper', () => {
-  // No other file of the server or the runner names the change, so nothing can run it on the host; they use SAC_OFF,
-  // and only server.js's smartAppControlOff does, through runCommand (wsb exec --id <its own Sandbox>).
+  // No other file of the server, its client or its inside scripts names the change, so nothing can run it on the host;
+  // only server.js's smartAppControlOff uses SAC_OFF, through runCommand (wsb exec --id <its own Sandbox>).
   const root = path.join(__dirname, '..')
-  const files = ['server.js', 'wsb.js', 'watchdog.js', 'confine.js', 'roots.js', 'client.js', ...fs.readdirSync(path.join(root, 'scenarios')).map(f => `scenarios/${f}`)]
+  const files = ['server.js', 'wsb.js', 'watchdog.js', 'confine.js', 'roots.js', 'client.js', ...fs.readdirSync(path.join(root, 'inside')).map(f => `inside/${f}`)]
   for (const f of files) {
     const src = fs.readFileSync(path.join(root, f), 'utf8')
     assert.strictEqual(/reg(\.exe)? add|CiTool|\/d 0 \/f/i.test(src), f === 'wsb.js', f)

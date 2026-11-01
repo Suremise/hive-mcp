@@ -1,5 +1,5 @@
 /**
- * A small stdio client for server.js, for scripts that drive it (the Hive checks, the smoke test, the tests).
+ * A small stdio client for server.js, for scripts that drive it (the smoke test, the tests, your own scripts).
  * Node built-ins only.
  *   const srv = server(env); const r = await srv.call('sandbox_start', { ... }); await srv.close()
  */

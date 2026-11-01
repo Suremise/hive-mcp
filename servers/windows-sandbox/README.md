@@ -6,7 +6,7 @@ It can start a Sandbox with the build folder mapped read-only, run commands and 
 screenshots, get files back from one writable folder, and always stop it again. It drives `wsb.exe` and runs over
 stdio (`node server.js`), with Hive or any other MCP client.
 
-It uses only Node built-ins: no dependencies, no `npm install`. Version 1.1.0. MIT licence ([LICENSE](../../LICENSE)).
+It uses only Node built-ins: no dependencies, no `npm install`. Version 1.2.0. MIT licence ([LICENSE](../../LICENSE)).
 
 ## Requirements
 
@@ -75,7 +75,7 @@ fake CLIs and test accounts. Full details are under "Security model" below.
 Builds then come from the client's roots (the project you are working in). For a client that sends none (Codex and
 the Copilot CLI, today), add `"WSB_ROOTS_FROM_CWD": "1"` or `WSB_ALLOWED_ROOTS` (see "Multiple projects"). A setting
 that names a folder that doesn't exist is reported by `sandbox_status` and `sandbox_start`. Per-run folders go to
-`%LOCALAPPDATA%\hive-test\sandbox` unless you set the optional `WSB_SANDBOX_ROOT` (see "Configuration").
+`%LOCALAPPDATA%\windows-sandbox-mcp` unless you set the optional `WSB_SANDBOX_ROOT` (see "Configuration").
 
 The [top-level README](../../README.md#install) shows the same entry for each client's config format.
 
@@ -90,7 +90,7 @@ that folder as their root, and Codex and Copilot agents start the server there.
 
 **What the server needs to run:** `server.js`, `wsb.js`, `confine.js`, `watchdog.js`, `roots.js`, `inside\run.ps1`
 and `inside\screenshot.ps1`. `roots.js` is a copy of the repo's [`shared/roots.js`](../../shared/roots.js). `client.js` is a small stdio client for scripts and the tests. Everything else in this
-folder is tests, probes, or an example consumer (below).
+folder is tests and probes.
 
 ## Multiple projects (MCP roots)
 
@@ -158,8 +158,8 @@ Errors name the cause:
 | `WSB_MCP_ENABLED` | Must be `1`, or every tool refuses (status still answers). A **kill switch**, so a copied config doesn't silently turn it on; it is **not** caller authentication (see "Who gets it"). |
 | `WSB_ALLOWED_ROOTS` | Optional. `;`-separated folders. With MCP roots it **narrows** them (a build must be under both); without, it is the list of folders builds may come from. See "Multiple projects". |
 | `WSB_ROOTS_FROM_CWD` | Optional. `1`: for a client that sends no MCP roots, the folder it started the server in is the root (never a drive root). |
-| `WSB_TOOL_DIRS` | `;`-separated `name=folder` pairs mapped read-only at `C:\tools\<name>`, e.g. `node=C:\Program Files\nodejs`. All optional: add what your tests need inside (the Hive checks below pass their own, `playwright` and `hive-tests`). |
-| `WSB_SANDBOX_ROOT` | Optional. Where per-run folders go (default `%LOCALAPPDATA%\hive-test\sandbox`): `<run>\out` (the writable folder), `config.xml`, `state.json`, `watchdog.json`/`.log`. Also `session-times.jsonl` (connect → user session times). |
+| `WSB_TOOL_DIRS` | `;`-separated `name=folder` pairs mapped read-only at `C:\tools\<name>`, e.g. `node=C:\Program Files\nodejs`. All optional: add what your tests need inside. |
+| `WSB_SANDBOX_ROOT` | Optional. Where per-run folders go (default `%LOCALAPPDATA%\windows-sandbox-mcp`): `<run>\out` (the writable folder), `config.xml`, `state.json`, `watchdog.json`/`.log`. Also `session-times.jsonl` (connect → user session times). Earlier versions used `%LOCALAPPDATA%\hive-test\sandbox`: nothing moves the runs already there, and the server no longer looks there, so delete that folder once you no longer need them (or set `WSB_SANDBOX_ROOT` to it to keep using it). |
 | `WSB_SESSION_WAIT_MS` | Optional. How long `sandbox_start` waits for the user session (default 90000). |
 
 Test-only: `WSB_STUB` (a Node script run instead of `wsb.exe`), `WSB_STOP_RETRY_MS`, `WSB_WATCHDOG_CHECK_MS`.
@@ -256,7 +256,7 @@ From the repo root, `npm test` runs every automated test below (`wsb.exe` stubbe
 
 ```powershell
 node ..\..\test\clean-scratch.js   # npm test does this first: clears earlier runs' scratch (below)
-node --test test\roots.test.js test\confine.test.js test\wsb.test.js test\server.test.js test\watchdog.test.js test\smoke-faults.test.js test\report.test.js test\hive-checks.test.js test\compare.test.js
+node --test test\roots.test.js test\confine.test.js test\wsb.test.js test\server.test.js test\watchdog.test.js test\smoke-faults.test.js
 node test\smoke.js --runs 3     # real Sandbox; skips cleanly where it's unavailable or another one is running
 ```
 
@@ -281,8 +281,6 @@ node test\smoke.js --runs 3     # real Sandbox; skips cleanly where it's unavail
 - `watchdog.test.js`: the watchdog's triggers and its fail-closed stop.
 - `smoke-faults.test.js`: `smoke.js`'s own cleanup under faults (the watchdog failing, its evidence unreadable, every
   stop failing): every Sandbox it starts is stopped, or named in `smoke.json` → `leftRunning` with a non-zero exit.
-- `report.test.js`, `compare.test.js`, `hive-checks.test.js`: the example consumer below (its report, its
-  comparison, and its runner's options, its pick of the previous installer, `--smart-app-control off`, and cleanup).
 - `smoke.js`, against a real Sandbox:
   - start, then run as user and as system;
   - the build folder is read-only, the network is off, and PowerShell errors come back as plain text;
@@ -303,108 +301,30 @@ debugging and the folder holds about one run's worth. It removes only folders th
 `stub.json`), skips any whose test process is still running (its pid is live and the folder changed in the last hour:
 Windows reuses pids), and leaves one it can't remove (a file still open) for the next run.
 
-## Example consumer: Hive's release checks
+## Driving it from a script
 
-> **Hive-specific.** Everything in this section is how the Hive desktop app tests its own installers with this
-> server. The server doesn't need any of it. It is kept here as a worked example of driving the server from a script.
-> The files: `scenarios\` (`hive-checks.js`, `report.js`, `compare-workspace.js`), `inside\hive\`,
-> [RELEASE-TESTING.md](RELEASE-TESTING.md), and the [`probes/`](probes/) that measured `wsb.exe` before the server
-> was written.
+`client.js` starts `server.js` over stdio and calls its tools, so a script can run a check on a clean Windows the
+way an agent would. Node built-ins only. For example, to run an installer silently and get its log back:
 
-`scenarios\hive-checks.js` checks a Hive installer the way a user meets it, on a clean Windows. It writes a short
-report to attach to a release, and drives this server over stdio (`client.js`), with:
-- the network **off**;
-- Hive's own e2e fake CLIs only, and nothing signed in;
-- a timeout on every command.
+```js
+const { server } = require('./client')
 
-```powershell
-node scenarios\hive-checks.js --installer "<Hive repo>\dist\<folder>\Hive-Setup-<v>.exe" --hive "<Hive repo>"
-     [--previous <older Hive-Setup-*.exe>] [--report <folder>] [--only fresh|upgrade] [--wait-min N]
-     [--smart-app-control off]
+;(async () => {
+  const build = 'C:\\path\\to\\your\\project\\dist'
+  // The build folder is the client's MCP root, so it needs no WSB_ALLOWED_ROOTS.
+  const srv = server({ ...process.env, WSB_MCP_ENABLED: '1' }, { roots: [build] })
+  try {
+    const start = await srv.call('sandbox_start', { build, network: false })
+    if (start.isError) throw new Error(start.text)
+    const run = await srv.call('sandbox_run', { command: 'C:\\build\\setup.exe /S > C:\\out\\install.log 2>&1', timeoutSec: 300 })
+    console.log(run.text)
+  } finally {
+    console.log((await srv.call('sandbox_stop')).text) // always stop it, also after a failure
+    console.log((await srv.call('sandbox_collect', { paths: ['install.log'] })).text)
+    await srv.close()
+  }
+})()
 ```
 
-- **The Hive repo** (`--hive`, or `HIVE_REPO`): a built checkout. It's required, and mapped read-only for
-  `node_modules\playwright-core` and `tests` (the fake CLIs). Node is the host's.
-- **The installers:** `--previous` defaults to the newest `Hive-Setup-*.exe` in `<hive>\dist` other than
-  `--installer`, by semver: a release is newer than its prereleases (`0.9.0` over `0.9.0-rc.1` over `0.9.0-beta.1`). Both must sit under one folder, which is mapped read-only at `C:\build`. That folder can't be a
-  drive root, and the two can't be on different drives; either is refused before anything starts. The runner gives
-  that folder to its own copy of the server as its MCP root, so it needs no `WSB_ALLOWED_ROOTS` or MCP registration.
-- **The report** (default `%LOCALAPPDATA%\hive-test\sandbox-reports\<time>`):
-  - `report.md` (pass or fail per check, versions, timings, notes);
-  - `report.json` (with every fact collected);
-  - the screenshots, and `run.log`.
-- **Exit codes:** 0 all passed; 1 a check failed; 2 not run (bad options, the Sandbox unavailable, another one
-  running (see `--wait-min`), or an installer blocked, below).
-- **NOT RUN: an installer blocked.** If an App Control policy in the Sandbox refuses an installer ("An Application
-  Control policy has blocked this file"), that Sandbox's scenarios are **not run**. This happens when Smart App
-  Control enforces in the Sandbox, which blocks every unsigned installer. Nothing after the install could be checked,
-  so the report doesn't list dozens of failures that all have this one cause. Instead it says `NOT RUN` with one
-  reason, lists which installer each scenario couldn't install, and leaves those checks out; the exit code is 2.
-  - **Not a pass or a failure:** NOT RUN says nothing about the build. Sign the installer, or run the checks again
-    with `--smart-app-control off` (below).
-  - **Mixed results:** if the other Sandbox's checks ran and all passed, the verdict is still NOT RUN. If any of them
-    failed, it is FAILED (exit 1), naming what wasn't run.
-  - **Its state:** the runner reads Smart App Control's state in the Sandbox (`reg query`
-    `HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy` `VerifiedAndReputablePolicyState`: 0 off, 1 on, 2 evaluation)
-    for the reason and `report.json` → `meta.smartAppControl` (`{ state, option, note }`). Without the option it only
-    reads it.
-- **`--smart-app-control off`** (optional; off by default): checks an **unsigned** installer. Each Sandbox is started
-  with `smartAppControl: 'off'`, so the server turns Smart App Control off inside it, and never on the host (see
-  "Smart App Control in the Sandbox"). Before each install the runner reads the state again: if it isn't 0, that
-  Sandbox's scenarios are NOT RUN with that reason and no installer is run. The report says so plainly: the line
-  "**Smart App Control in the Sandbox: turned off by option**" in `report.md`, and `meta.smartAppControl.note`
-  "turned off by option" in `report.json`. Such a run says nothing about signing.
-- **It passes only with full coverage:**
-  - every scenario asked for ran;
-  - every step (each install, driver run, screenshot and collect) succeeded;
-  - each driver finished its step (`completed`), with all its required checks (by id) and facts;
-  - and the required screenshots were collected.
-
-  Anything missing, a failed command or a timeout is a failed check, never a gap.
-- **Cleanup:** each Sandbox is stopped in a `finally` that doesn't depend on logging, with a confirm-and-retry
-  fallback. One that can't be confirmed stopped is a failed check naming its id.
-- It takes about 3 minutes for both Sandboxes.
-
-| Scenario | Sandbox | What it checks |
-|---|---|---|
-| 1. Fresh install and first launch | A | `/S` install; one Installed-apps entry "Hive Desktop <version>"; `%LOCALAPPDATA%\Programs\Hive`; "Hive Desktop" shortcuts on the Desktop and in the Start menu; the first screen; the profile `%APPDATA%\Hive`; the version the app reports. Desktop and Installed-apps screenshots. |
-| 2. First run with no CLIs | A | the "No coding agents are turned on… Choose providers" banner; **no** "Claude Code is not installed" warning; Provider Setup offers Claude Code, Codex and GitHub Copilot; the Agent API agrees. Window shots in both themes. |
-| 3. A CLI appearing while Hive runs | A | Claude Code turned on (not found); a stand-in installer (`inside\hive\fake-claude-install.ps1`) puts the e2e fake on the user PATH in the registry; Provider Setup's "Check again" finds it (2.1.999, via PATH) **without restarting Hive**; the banner goes. |
-| 4. Upgrade | B | the previous release installed and two settings changed (user name, theme); then this build with the updater's `--updated /S --force-run`; Hive started by `--force-run`; one Installed-apps entry; shortcuts renamed or kept ("Hive" → "Hive Desktop" from 0.4.x); the app code (app.asar hash) changed; settings kept. |
-| 5. Uninstall | A | `"Uninstall Hive.exe" /S`; the entry, install folder and shortcuts gone; the profile kept (`deleteAppDataOnUninstall: false`). |
-| 6. A new workspace | A | the fresh install opens a new workspace (one project folder): what its `.hive` holds, the Agent API's status and projects, and the workspace's views (Overview, Task Board, Shared Notes, Skills, MCP Servers, Hive Assistant) with screenshots. |
-
-**The fresh-install comparison** (without a model) runs as:
-
-```powershell
-node scenarios\compare-workspace.js --report <a run's report folder> [--workspace <Hive workspace folder>]
-```
-
-(`--workspace` defaults to the current folder.) It writes `comparison.md` into that report folder.
-- **What it compares:** the fresh install and its new workspace, against an existing workspace (its conventions
-  and history) and the machine (Git, Node, CLIs). On the workspace side: skills, Assistant modes, templates, MCP
-  servers, shared notes, the board, and the projects' convention files.
-- **How:** lists are compared as sets of names, showing what is only on each side, not just how many.
-- **It claims only what was measured.** The run's scenario 1 and 6 records must be finished and passing, with their
-  facts, and the workspace must be a readable Hive workspace. Otherwise it writes nothing and exits 1
-  (`NOT COMPARED: …`). A folder that doesn't exist counts as empty; one that can't be read is an error.
-- **Names only:** no note, skill or convention file is read, and no CLI home (agent memory lives there, and matters
-  only with a model).
-
-How the checks fit into a Hive release: [RELEASE-TESTING.md](RELEASE-TESTING.md).
-
-The report also makes two notes of its own:
-- **No Git** on a fresh machine (Hive's Git warning).
-- A previous release with the **same version** as the build. Test builds keep the last release's number, so the
-  in-app updater wouldn't offer them, and the upgrade is a reinstall run with the updater's arguments.
-
-**How it sees Hive:**
-- a Playwright script inside (`inside\hive\drive.cjs`), using Hive's own playwright-core, with `_electron.launch` on
-  the installed `Hive.exe` and its real profile;
-- the window's `hive.invoke` IPC, for themes and settings;
-- Hive's Agent API on `127.0.0.1`, for status;
-- `sandbox_screenshot`, for the desktop.
-
-`inside\hive\install.ps1` and `install-state.ps1` run the installers and record what they left: registry, folders,
-shortcuts and the app.asar hash. An agent with only the MCP tools can run the same pieces itself with
-`sandbox_run`, since they are mapped at `C:\wsb-mcp\hive`.
+[`test\smoke.js`](test/smoke.js) is a longer example: it uses every tool, times the user session and checks the
+cleanup.
