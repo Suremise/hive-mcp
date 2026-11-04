@@ -1,6 +1,6 @@
 /**
  * Test helpers: a scratch folder per test, the wsb stub's state, and a JSON-RPC client for server.js.
- * Scratch goes under WSB_TEST_SCRATCH (default %LOCALAPPDATA%\hive-mcp-tests\wsb-mcp-tests), never the repo;
+ * Scratch goes under WSB_TEST_SCRATCH (default %LOCALAPPDATA%\combwork-mcp-tests\wsb-mcp-tests), never the repo;
  * The repo's test/clean-scratch.js clears earlier runs' folders there before `npm test`.
  */
 const fs = require('fs')

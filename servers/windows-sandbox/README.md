@@ -4,7 +4,7 @@ An MCP server that lets an agent test a build on a clean, throwaway Windows in
 [Windows Sandbox](https://learn.microsoft.com/windows/security/application-security/application-isolation/windows-sandbox/).
 It can start a Sandbox with the build folder mapped read-only, run commands and get their output, take desktop
 screenshots, get files back from one writable folder, and always stop it again. It drives `wsb.exe` and runs over
-stdio (`node server.js`), with Hive or any other MCP client.
+stdio (`node server.js`), with Combwork or any other MCP client.
 
 It uses only Node built-ins: no dependencies, no `npm install`. Its version is in [meta.json](meta.json), which it reports to MCP clients. MIT licence ([LICENSE](../../LICENSE)).
 
@@ -62,7 +62,7 @@ fake CLIs and test accounts. Full details are under "Security model" below.
   "mcpServers": {
     "windows-sandbox": {
       "command": "node",
-      "args": ["C:\\path\\to\\hive-mcp\\servers\\windows-sandbox\\server.js"],
+      "args": ["C:\\path\\to\\combwork-mcp\\servers\\windows-sandbox\\server.js"],
       "env": {
         "WSB_MCP_ENABLED": "1",
         "WSB_TOOL_DIRS": "node=C:\\Program Files\\nodejs"
@@ -79,14 +79,14 @@ that names a folder that doesn't exist is reported by `sandbox_status` and `sand
 
 The [top-level README](../../README.md#install) shows the same entry for each client's config format.
 
-**In Hive:** pack it (`node scripts\pack.mjs windows-sandbox` at the repo root) and add `dist\windows-sandbox.zip`
+**In Combwork:** pack it (`node scripts\pack.mjs windows-sandbox` at the repo root) and add `dist\windows-sandbox.zip`
 with **Add MCP Server from File** in the MCP view. Its definition goes in as `hive-mcp.example.json`: check `env`
 (`WSB_TOOL_DIRS` names Node's usual folder), then turn it on, and only in a dedicated project (see "Who gets it"). It
-sets `WSB_ROOTS_FROM_CWD=1`, because Hive starts each agent in its project folder or worktree: Claude Code agents send
+sets `WSB_ROOTS_FROM_CWD=1`, because Combwork starts each agent in its project folder or worktree: Claude Code agents send
 that folder as their root, and Codex and Copilot agents start the server there.
 
-[`hive-mcp.example.json`](hive-mcp.example.json) is that definition: the same entry in Hive's format, where
-`${HIVE_MCP_DIR}` is the folder Hive keeps its MCP servers in.
+[`combwork-mcp.example.json`](combwork-mcp.example.json) is that definition: the same entry in Combwork's format, where
+`${HIVE_MCP_DIR}` is the folder Combwork keeps its MCP servers in. (The zip holds it as `hive-mcp.example.json`, and the variable keeps its Hive name: the app still reads those.)
 
 **What the server needs to run:** `server.js`, `wsb.js`, `confine.js`, `watchdog.js`, `roots.js`, `inside\run.ps1`
 and `inside\screenshot.ps1`. `roots.js` is a copy of the repo's [`shared/roots.js`](../../shared/roots.js). `client.js` is a small stdio client for scripts and the tests. Everything else in this
@@ -159,7 +159,7 @@ Errors name the cause:
 | `WSB_ALLOWED_ROOTS` | Optional. `;`-separated folders. With MCP roots it **narrows** them (a build must be under both); without, it is the list of folders builds may come from. See "Multiple projects". |
 | `WSB_ROOTS_FROM_CWD` | Optional. `1`: for a client that sends no MCP roots, the folder it started the server in is the root (never a drive root). |
 | `WSB_TOOL_DIRS` | `;`-separated `name=folder` pairs mapped read-only at `C:\tools\<name>`, e.g. `node=C:\Program Files\nodejs`. All optional: add what your tests need inside. |
-| `WSB_SANDBOX_ROOT` | Optional. Where per-run folders go (default `%LOCALAPPDATA%\windows-sandbox-mcp`): `<run>\out` (the writable folder), `config.xml`, `state.json`, `watchdog.json`/`.log`. Also `session-times.jsonl` (connect → user session times). Earlier versions used `%LOCALAPPDATA%\hive-test\sandbox`: nothing moves the runs already there, and the server no longer looks there, so delete that folder once you no longer need them (or set `WSB_SANDBOX_ROOT` to it to keep using it). The repo's tests, smoke run and probes wrote their scratch under `%LOCALAPPDATA%\hive-test\scratch` then; it is now `%LOCALAPPDATA%\hive-mcp-tests`, and nothing removes the old folder either. |
+| `WSB_SANDBOX_ROOT` | Optional. Where per-run folders go (default `%LOCALAPPDATA%\windows-sandbox-mcp`): `<run>\out` (the writable folder), `config.xml`, `state.json`, `watchdog.json`/`.log`. Also `session-times.jsonl` (connect → user session times). Earlier versions used `%LOCALAPPDATA%\hive-test\sandbox`: nothing moves the runs already there, and the server no longer looks there, so delete that folder once you no longer need them (or set `WSB_SANDBOX_ROOT` to it to keep using it). The repo's tests, smoke run and probes wrote their scratch under `%LOCALAPPDATA%\hive-test\scratch` then, and `%LOCALAPPDATA%\hive-mcp-tests` until the rename to combwork-mcp; it is now `%LOCALAPPDATA%\combwork-mcp-tests`, and nothing removes the old folders either. |
 | `WSB_SESSION_WAIT_MS` | Optional. How long `sandbox_start` waits for the user session (default 90000). |
 
 Test-only: `WSB_STUB` (a Node script run instead of `wsb.exe`), `WSB_STOP_RETRY_MS`, `WSB_WATCHDOG_CHECK_MS`.
@@ -168,7 +168,7 @@ Test-only: `WSB_STUB` (a Node script run instead of `wsb.exe`), `WSB_STOP_RETRY_
 
 **Who gets it.** An MCP server is available to every agent its client gives it to, and it can't tell its callers
 apart: a stdio server only knows that its launcher started it. Give it only to the agent that does the testing. In
-Hive, MCP servers are turned on per workspace and off per project, not per agent: every agent started in a project
+Combwork, MCP servers are turned on per workspace and off per project, not per agent: every agent started in a project
 where this server is on gets it. So turn it on **only in a dedicated testing project that holds only the testing
 agent**, and off everywhere else. Starting any other agent in that project hands it the server too.
 
@@ -291,10 +291,10 @@ node test\smoke.js --runs 3     # real Sandbox; skips cleanly where it's unavail
   - then, with no build mapped, a hard kill of the server that the watchdog must clean up.
 
   Every Sandbox it starts gets a fallback stop in a `finally`. Scratch goes to `WSB_TEST_SCRATCH` (default under
-  `%LOCALAPPDATA%\hive-mcp-tests`).
+  `%LOCALAPPDATA%\combwork-mcp-tests`).
 
 **Where the tests' output goes.** The automated tests write only to `WSB_TEST_SCRATCH` (default
-`%LOCALAPPDATA%\hive-mcp-tests\wsb-mcp-tests`), never the repo: a folder per test, `<pid>-<n>-<name>`, with its
+`%LOCALAPPDATA%\combwork-mcp-tests\wsb-mcp-tests`), never the repo: a folder per test, `<pid>-<n>-<name>`, with its
 fake profile, builds, sandbox runs and stub state. Before each `npm test`, the repo's `test\clean-scratch.js` removes
 earlier runs' folders (tested by `test\clean-scratch.test.js` there), so the latest run's output stays there for
 debugging and the folder holds about one run's worth. It removes only folders the tests made (that name, with their

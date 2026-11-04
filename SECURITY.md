@@ -8,7 +8,7 @@ still happens with the latest version before reporting it.
 ## Reporting a vulnerability
 
 Please **don't** open a public issue. Report it privately through GitHub's private vulnerability reporting:
-open [Suremise/hive-mcp](https://github.com/Suremise/hive-mcp), go to the **Security** tab, and choose **Report a
+open [Suremise/combwork-mcp](https://github.com/Suremise/combwork-mcp), go to the **Security** tab, and choose **Report a
 vulnerability**. Say which server and version, your OS and Node version, and how to reproduce it.
 
 ## Scope

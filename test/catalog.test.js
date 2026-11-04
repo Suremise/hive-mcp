@@ -54,11 +54,13 @@ test('pack makes a valid catalog.json listing every server, its sha256 and size 
   const pkg = require(path.join(REPO, 'package.json'))
   assert.strictEqual(c.release, `v${pkg.version}`)
   assert.deepStrictEqual(c.servers.map(s => s.name), SERVERS)
+  assert.strictEqual(c.name, 'Suremise/combwork-mcp')
+  assert.strictEqual(c.homepage, 'https://github.com/Suremise/combwork-mcp')
   for (const s of c.servers) {
     const zip = fs.readFileSync(path.join(out, `${s.name}.zip`))
     assert.strictEqual(s.zip.sha256, crypto.createHash('sha256').update(zip).digest('hex'), s.name)
     assert.strictEqual(s.zip.size, zip.length, s.name)
-    assert.strictEqual(s.zip.url, `https://github.com/Suremise/hive-mcp/releases/download/v${pkg.version}/${s.name}.zip`)
+    assert.strictEqual(s.zip.url, `https://github.com/Suremise/combwork-mcp/releases/download/v${pkg.version}/${s.name}.zip`)
     const meta = JSON.parse(fs.readFileSync(path.join(REPO, 'servers', s.name, 'meta.json'), 'utf8'))
     assert.deepStrictEqual({ version: s.version, description: s.description, tags: s.tags, requires: s.requires }, meta, s.name)
   }
@@ -79,9 +81,11 @@ test('a zip holds the repo files byte for byte, with sound CRCs, the server meta
   const out = pack(t, 'contents')
   const entries = unzip(fs.readFileSync(path.join(out, 'trilium.zip')))
   assert.deepStrictEqual(entries.map(e => e.name), ['trilium/LICENSE', 'trilium/README.md', 'trilium/hive-mcp.example.json', 'trilium/meta.json', 'trilium/server.js'])
+  // The definition goes in under the name Combwork reads (hive-mcp.example.json), from the repo's combwork-mcp.example.json.
+  const from = { 'trilium/LICENSE': path.join(REPO, 'LICENSE'), 'trilium/hive-mcp.example.json': path.join(REPO, 'servers', 'trilium', 'combwork-mcp.example.json') }
   for (const e of entries) {
     assert.strictEqual(crc32(e.data), e.crc, e.name)
-    const src = e.name === 'trilium/LICENSE' ? path.join(REPO, 'LICENSE') : path.join(REPO, 'servers', e.name)
+    const src = from[e.name] || path.join(REPO, 'servers', e.name)
     assert.ok(e.data.equals(fs.readFileSync(src)), `${e.name} differs from the repo`)
   }
 })

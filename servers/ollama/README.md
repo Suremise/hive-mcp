@@ -1,7 +1,7 @@
 # ollama
 
 An MCP server that lets agents hand reading and drafting work to local [Ollama](https://ollama.com) models instead
-of using cloud tokens. It runs over stdio (`node server.js`) and works with Hive or any other MCP client.
+of using cloud tokens. It runs over stdio (`node server.js`) and works with Combwork or any other MCP client.
 
 It uses only Node built-ins: no dependencies, no `npm install`. Its version is in [meta.json](meta.json), which it reports to MCP clients. MIT licence ([LICENSE](../../LICENSE)).
 
@@ -22,7 +22,7 @@ It uses only Node built-ins: no dependencies, no `npm install`. Its version is i
   "mcpServers": {
     "ollama": {
       "command": "node",
-      "args": ["C:\\path\\to\\hive-mcp\\servers\\ollama\\server.js"],
+      "args": ["C:\\path\\to\\combwork-mcp\\servers\\ollama\\server.js"],
       "env": { "OLLAMA_HOST": "http://127.0.0.1:11434" }
     }
   }
@@ -37,13 +37,13 @@ today), add `"OLLAMA_ROOTS_FROM_CWD": "1"`: see "Multiple projects". The
 unset, the server uses the first model Ollama lists, and agents can always pass `model`. If the default you set isn't
 pulled, the server's instructions say so, so agents pass `model` instead.
 
-**In Hive:** pack it (`node scripts\pack.mjs ollama` at the repo root) and add `dist\ollama.zip` with **Add MCP Server
+**In Combwork:** pack it (`node scripts\pack.mjs ollama` at the repo root) and add `dist\ollama.zip` with **Add MCP Server
 from File** in the MCP view. Its definition, `hive-mcp.json`, works unchanged for a local Ollama. It sets
-`OLLAMA_ROOTS_FROM_CWD=1`, because Hive starts each agent in its project folder or worktree, and leaves the model
+`OLLAMA_ROOTS_FROM_CWD=1`, because Combwork starts each agent in its project folder or worktree, and leaves the model
 unset: add `OLLAMA_DEFAULT_MODEL` to pick one.
 
-[`hive-mcp.example.json`](hive-mcp.example.json) is that definition: the same entry in Hive's format, where
-`${HIVE_MCP_DIR}` is the folder Hive keeps its MCP servers in.
+[`combwork-mcp.example.json`](combwork-mcp.example.json) is that definition: the same entry in Combwork's format, where
+`${HIVE_MCP_DIR}` is the folder Combwork keeps its MCP servers in. (The zip holds it as `hive-mcp.json`, and the variable keeps its Hive name: the app still reads those.)
 
 **What the server needs to run:** `server.js` and `roots.js` (a copy of the repo's
 [`shared/roots.js`](../../shared/roots.js)).
@@ -154,7 +154,7 @@ run the server over stdio against a fake Ollama (no models needed) and cover:
 - the default-model messages.
 
 **Where the tests' output goes.** Only to `OLLAMA_TEST_SCRATCH` (default
-`%LOCALAPPDATA%\hive-mcp-tests\ollama-tests`), never the repo: a folder per test, `<pid>-<n>-<name>`, holding a
+`%LOCALAPPDATA%\combwork-mcp-tests\ollama-tests`), never the repo: a folder per test, `<pid>-<n>-<name>`, holding a
 fake profile and projects. Before each `npm test`, the repo's `test\clean-scratch.js` removes earlier runs' folders, so
 the latest run's output stays there for debugging and the folder holds about one run's worth. It removes only folders
 the tests made (that name, with their `home\.ssh\id_ed25519` and `outside\secret.txt` stand-ins), skips any whose test

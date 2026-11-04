@@ -18,7 +18,7 @@ Cleanup fails closed:
 `fault-check.js` checks that behaviour with `wsb.exe` stubbed, launching nothing: `node fault-check.js`.
 
 Folders are mapped read-only except one writable `out` folder. Logs, results and screenshots go to
-`%LOCALAPPDATA%\hive-mcp-tests\wsb-probe-<time>\<probe>\`, never the repo (`PROBE_SCRATCH` sets that root).
+`%LOCALAPPDATA%\combwork-mcp-tests\wsb-probe-<time>\<probe>\`, never the repo (`PROBE_SCRATCH` sets that root).
 Earlier versions wrote them under another folder of `%LOCALAPPDATA%`; nothing moves or removes those.
 
 | Probe | Network | What it checks |

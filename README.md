@@ -1,9 +1,9 @@
-# hive-mcp
+# combwork-mcp
 
 A collection of optional [MCP](https://modelcontextprotocol.io) servers for coding agents. Each one is a small,
 self-contained Node program that speaks MCP over stdio, so **any MCP client can use it**: Claude Code, Codex,
-GitHub Copilot, Claude Desktop, Cursor and others. The Hive team develops them, and they're useful to Hive (a
-desktop app that runs coding agents in shared workspaces), but **none of them needs Hive**.
+GitHub Copilot, Claude Desktop, Cursor and others. The Combwork team develops them, and they're useful to Combwork (a
+desktop app that runs coding agents in shared workspaces), but **none of them needs Combwork**.
 
 Every server uses only Node built-ins: no dependencies, and no `npm install` to run it.
 
@@ -27,11 +27,11 @@ Each server's README covers its setup, tools, configuration, safety notes and li
 
 ## Install
 
-Clone the repo anywhere (or download a server's zip from a [release](https://github.com/Suremise/hive-mcp/releases)
+Clone the repo anywhere (or download a server's zip from a [release](https://github.com/Suremise/combwork-mcp/releases)
 and unpack it). Nothing needs to be built or installed:
 
 ```powershell
-git clone https://github.com/Suremise/hive-mcp.git C:\path\to\hive-mcp
+git clone https://github.com/Suremise/combwork-mcp.git C:\path\to\combwork-mcp
 ```
 
 Then register a server with your client. Its command is `node <repo>\servers\<name>\server.js`, plus that server's
@@ -41,7 +41,7 @@ Then register a server with your client. Its command is `node <repo>\servers\<na
 **Claude Code:**
 
 ```powershell
-claude mcp add ollama -e OLLAMA_HOST=http://127.0.0.1:11434 -- node C:\path\to\hive-mcp\servers\ollama\server.js
+claude mcp add ollama -e OLLAMA_HOST=http://127.0.0.1:11434 -- node C:\path\to\combwork-mcp\servers\ollama\server.js
 ```
 
 **Codex** (`config.toml`):
@@ -49,7 +49,7 @@ claude mcp add ollama -e OLLAMA_HOST=http://127.0.0.1:11434 -- node C:\path\to\h
 ```toml
 [mcp_servers.ollama]
 command = "node"
-args = ['C:\path\to\hive-mcp\servers\ollama\server.js']  # a literal string: backslashes as they are
+args = ['C:\path\to\combwork-mcp\servers\ollama\server.js']  # a literal string: backslashes as they are
 env = { OLLAMA_HOST = "http://127.0.0.1:11434", OLLAMA_ROOTS_FROM_CWD = "1" }
 ```
 
@@ -63,7 +63,7 @@ use the project folder Codex starts it in. The same goes for the Copilot CLI.
   "mcpServers": {
     "ollama": {
       "command": "node",
-      "args": ["C:\\path\\to\\hive-mcp\\servers\\ollama\\server.js"],
+      "args": ["C:\\path\\to\\combwork-mcp\\servers\\ollama\\server.js"],
       "env": { "OLLAMA_HOST": "http://127.0.0.1:11434" }
     }
   }
@@ -77,7 +77,7 @@ In JSON, each `\` in a Windows path is written `\\` (or use `/`).
 Where each client keeps its config, and its exact keys, are in its own documentation.
 
 **What's been tested:**
-- Both servers, from a clean clone, through a plain stdio MCP client with no Hive environment: `initialize`,
+- Both servers, from a clean clone, through a plain stdio MCP client with no Combwork environment: `initialize`,
   `tools/list` and a tool call. For `windows-sandbox`, also the real-Sandbox smoke test.
 - Both servers in Claude Code, and `windows-sandbox` driven by a Codex agent with `WSB_ROOTS_FROM_CWD=1`.
 - Which clients send MCP roots, measured: Claude Code does (its working folder and each `--add-dir`); Codex and the
@@ -90,17 +90,17 @@ They use only the core MCP methods (`initialize`, `ping`, `tools/list`, `tools/c
 [MCP roots](https://modelcontextprotocol.io/specification/2025-06-18/client/roots), so one install serves every
 project. Each server's README has a "Multiple projects" section.
 
-### In Hive (Add MCP Server from File)
+### In Combwork (Add MCP Server from File)
 
-Hive can also add a server from a zip:
+Combwork can also add a server from a zip:
 
-1. Download it from a [release](https://github.com/Suremise/hive-mcp/releases), or pack the zips yourself:
+1. Download it from a [release](https://github.com/Suremise/combwork-mcp/releases), or pack the zips yourself:
    ```powershell
-   cd C:\path\to\hive-mcp
+   cd C:\path\to\combwork-mcp
    node scripts\pack.mjs            # every server, into dist\<name>.zip, plus dist\catalog.json
    node scripts\pack.mjs ollama     # just this one (no catalog.json)
    ```
-2. In Hive 0.6.0 or later, open the **MCP** view, choose **Add MCP Server from File**, and pick the zip. Hive unpacks
+2. In Combwork (or Hive Desktop 0.6.0 or later, as it was called before), open the **MCP** view, choose **Add MCP Server from File**, and pick the zip. Combwork unpacks
    it into the workspace's `.hive/mcp/<name>/`.
 3. The server is added **turned off**. Check its definition (`env`) first, then enable it. `windows-sandbox` needs
    your paths set before it can start a Sandbox (see its README).
@@ -108,10 +108,15 @@ Hive can also add a server from a zip:
 Each zip has one top folder named after the server, holding:
 - the server's code;
 - `README.md` and `LICENSE`;
-- its Hive definition: `hive-mcp.json` when it works unchanged (`ollama`), else `hive-mcp.example.json` to edit
-  (`windows-sandbox`, `trilium`).
+- its Combwork definition: `hive-mcp.json` when it works unchanged (`ollama`), else `hive-mcp.example.json` to edit
+  (`windows-sandbox`, `trilium`). In the repo it is the server's `combwork-mcp.example.json`; `pack.mjs` names it
+  in the zip as the app reads it.
 
-Tests and probes stay out. `pack.mjs` checks each zip against Hive's rules for that dialog:
+Combwork still reads the names it had as Hive Desktop: the definition is `hive-mcp.json` or `hive-mcp.example.json`
+inside the zip, `${HIVE_MCP_DIR}` is its folder of MCP servers, and `.hive/mcp` is where a workspace keeps them. This
+repo keeps those names until the app renames them.
+
+Tests and probes stay out. `pack.mjs` checks each zip against Combwork's rules for that dialog:
 - one top folder, and one definition;
 - no links or unsafe paths;
 - the file and size limits;
@@ -122,12 +127,12 @@ or extra fields), so a zip's sha256 changes only when its files do. Packing need
 
 ## The catalogue
 
-Each [release](https://github.com/Suremise/hive-mcp/releases) holds every server's zip and a `catalog.json` that
-lists them, for Hive's MCP view or any client to offer the servers, download one and check it. The latest is always
+Each [release](https://github.com/Suremise/combwork-mcp/releases) holds every server's zip and a `catalog.json` that
+lists them, for Combwork's MCP view or any client to offer the servers, download one and check it. The latest is always
 at:
 
 ```
-https://github.com/Suremise/hive-mcp/releases/latest/download/catalog.json
+https://github.com/Suremise/combwork-mcp/releases/latest/download/catalog.json
 ```
 
 A client downloads a server's `zip.url`, checks its SHA-256 against `zip.sha256` (and its size against `zip.size`),
@@ -138,8 +143,8 @@ and uses the zip only when they match. Anyone can publish a catalogue of their o
 ```json
 {
   "schemaVersion": 1,
-  "name": "Suremise/hive-mcp",
-  "homepage": "https://github.com/Suremise/hive-mcp",
+  "name": "Suremise/combwork-mcp",
+  "homepage": "https://github.com/Suremise/combwork-mcp",
   "release": "v1.0.0",
   "servers": [
     {
@@ -152,9 +157,9 @@ and uses the zip only when they match. Anyone can publish a catalogue of their o
         "windows": { "editions": ["Pro", "Enterprise", "Education"], "minBuild": 26100, "features": ["Windows Sandbox"] },
         "node": ">=18"
       },
-      "homepage": "https://github.com/Suremise/hive-mcp/tree/v1.0.0/servers/windows-sandbox",
+      "homepage": "https://github.com/Suremise/combwork-mcp/tree/v1.0.0/servers/windows-sandbox",
       "zip": {
-        "url": "https://github.com/Suremise/hive-mcp/releases/download/v1.0.0/windows-sandbox.zip",
+        "url": "https://github.com/Suremise/combwork-mcp/releases/download/v1.0.0/windows-sandbox.zip",
         "sha256": "<64 lower-case hex digits>",
         "size": 72903
       }
@@ -201,7 +206,7 @@ for what each test covers.
 
 ## Layout
 
-- `servers/<name>/`: one server per folder, holding its code, `README.md`, a `hive-mcp.example.json` and its
+- `servers/<name>/`: one server per folder, holding its code, `README.md`, a `combwork-mcp.example.json` and its
   `meta.json` (its version, one-line description, tags and requirements, for the catalogue; it ships in the zip,
   and the server reports its version from it).
 - `scripts/pack.mjs`: packs each server as `dist/<name>.zip`, and `dist/catalog.json` (`catalog.mjs`, `zip.mjs`).
@@ -213,7 +218,7 @@ for what each test covers.
 
 ## Issues and contributions
 
-Report bugs and ask questions in [GitHub issues](https://github.com/Suremise/hive-mcp/issues): say which server,
+Report bugs and ask questions in [GitHub issues](https://github.com/Suremise/combwork-mcp/issues): say which server,
 your OS and Node version, and what you ran. For a security problem (for example a way out of a server's
 confinement), please **don't** open a public issue. Use GitHub's private vulnerability reporting instead: the
 repository's **Security** tab, then **Report a vulnerability**. [SECURITY.md](SECURITY.md) says what's in scope.
