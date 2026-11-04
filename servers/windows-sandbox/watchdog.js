@@ -62,7 +62,7 @@ async function stop(reason) {
   process.exit(1)
 }
 
-log('watching', state.id, 'server pid', state.serverPid, 'deadline', new Date(deadline).toISOString())
+log('watching', state.id, 'server pid', state.serverPid, 'deadline', new Date(deadline).toISOString(), 'cwd', process.cwd())
 setInterval(() => {
   if (stopping) return
   if (!serverGone && !alive(state.serverPid)) gone('pid not alive')

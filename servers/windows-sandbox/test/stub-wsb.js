@@ -1,7 +1,8 @@
 /**
  * A scripted stand-in for wsb.exe (tests only): the server runs `node stub-wsb.js <args>` when WSB_STUB points here.
  * Launches nothing. Its state is a JSON file (WSB_STUB_STATE), shared by the server and the watchdog processes:
- *   { sandboxes: [ids], out: { id: hostOutDir }, calls: [args], killed: [pids], fail: { ... } }
+ *   { sandboxes: [ids], out: { id: hostOutDir }, calls: [args], cwds: [{ cmd, cwd }], killed: [pids], fail: { ... } }
+ * cwds: each call's working folder (the one wsb.exe, and the broker it brings up, would start in).
  * `fail` scripts faults:
  *   list: 'exit' | 'garbage' | 'noarray' | 'badid'   every list fails that way
  *   listAfterStop: same, but only once a stop was called
@@ -44,6 +45,7 @@ const guid = () => 'xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx'.replace(/x/g, () => '0
 
 const r = withState(s => {
   s.calls.push(args)
+  ;(s.cwds ||= []).push({ cmd: args[0], cwd: process.cwd() })
   const cmd = args[0]
   const count = k => (s.n[k] = (s.n[k] || 0) + 1)
   if (cmd === '__window') return { stdout: args[1] === 'close' ? 'closed' : 'minimised' }

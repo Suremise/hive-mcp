@@ -14,9 +14,11 @@ process.env.PROBE_SCRATCH = process.env.PROBE_SCRATCH ||
 // The stub: each scenario sets `script`, a function (args) => { code, stdout, stderr }; calls are recorded.
 let script = () => ({ code: 0, stdout: '', stderr: '' })
 let calls = []
+let cwds = []
 cp.execFile = (file, args, opts, cb) => {
   const cmd = args.filter(a => a !== '--raw')
   calls.push(cmd[0])
+  cwds.push(opts?.cwd)
   const r = script(cmd)
   setImmediate(() => cb(r.code ? Object.assign(new Error('exit ' + r.code), { code: r.code }) : null, r.stdout ?? '', r.stderr ?? ''))
 }
@@ -123,6 +125,21 @@ check('a failing body still stops, and the run is FAILED', async () => {
   const r = await lib.withSandbox('fault-body', '<Configuration/>', async () => { throw new Error('boom') })
   assert.strictEqual(r.cleanup, 'ok')
   assert.match(r.error, /boom/)
+})
+
+check('every wsb launch starts in LAUNCH_DIR (the temp folder), never the folder the probe runs in (MC-1484)', async () => {
+  cwds = []
+  let up = false
+  script = cmd => {
+    if (cmd[0] === 'list') return list(up ? ['sb-1'] : [])
+    if (cmd[0] === 'start') { up = true; return started }
+    if (cmd[0] === 'stop') { up = false; return { code: 0 } }
+    return { code: 0 }
+  }
+  await lib.withSandbox('fault-cwd', '<Configuration/>', async ({ id }) => { await lib.exec(id, 'cmd.exe /c ver') })
+  assert.strictEqual(lib.LAUNCH_DIR, require('os').tmpdir())
+  assert.ok(cwds.length >= 5, String(cwds.length))
+  assert.ok(cwds.every(c => c === lib.LAUNCH_DIR), JSON.stringify(cwds))
 })
 
 ;(async () => {
