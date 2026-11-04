@@ -50,7 +50,7 @@ started by the client inherits the client's environment, user variables included
 [top-level README](../../README.md#install) shows the same kind of entry for each client's config format.
 
 **In Combwork:** pack it (`node scripts\pack.mjs trilium` at the repo root) and add `dist\trilium.zip` with **Add MCP
-Server from File** in the MCP view. Its definition, [`combwork-mcp.example.json`](combwork-mcp.example.json) (in the zip as `hive-mcp.example.json`, the name the app still reads), is added turned off: set `TRILIUM_URL` to
+Server from File** in the MCP view. Its definition, [`combwork-mcp.example.json`](combwork-mcp.example.json) is added turned off: set `TRILIUM_URL` to
 your Trilium, keep the token as the `${TRILIUM_ETAPI_TOKEN}` reference (Combwork warns about a literal secret in a
 definition), then turn it on.
 

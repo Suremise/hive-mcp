@@ -80,9 +80,8 @@ test('a zip holds the repo files byte for byte, with sound CRCs, the server meta
   const { crc32 } = await load('zip.mjs')
   const out = pack(t, 'contents')
   const entries = unzip(fs.readFileSync(path.join(out, 'trilium.zip')))
-  assert.deepStrictEqual(entries.map(e => e.name), ['trilium/LICENSE', 'trilium/README.md', 'trilium/hive-mcp.example.json', 'trilium/meta.json', 'trilium/server.js'])
-  // The definition goes in under the name Combwork reads (hive-mcp.example.json), from the repo's combwork-mcp.example.json.
-  const from = { 'trilium/LICENSE': path.join(REPO, 'LICENSE'), 'trilium/hive-mcp.example.json': path.join(REPO, 'servers', 'trilium', 'combwork-mcp.example.json') }
+  assert.deepStrictEqual(entries.map(e => e.name), ['trilium/LICENSE', 'trilium/README.md', 'trilium/combwork-mcp.example.json', 'trilium/meta.json', 'trilium/server.js'])
+  const from = { 'trilium/LICENSE': path.join(REPO, 'LICENSE') }
   for (const e of entries) {
     assert.strictEqual(crc32(e.data), e.crc, e.name)
     const src = from[e.name] || path.join(REPO, 'servers', e.name)

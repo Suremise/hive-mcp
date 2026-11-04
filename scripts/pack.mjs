@@ -1,6 +1,6 @@
 // Packs each server as dist/<name>.zip in the layout Combwork's Add MCP Server from File takes: one top folder
-// named after the server, holding its definition (hive-mcp.json, else hive-mcp.example.json: the names Combwork still
-// reads, from the server's combwork-mcp.example.json) and the files it runs.
+// named after the server, holding its definition (combwork-mcp.json, else combwork-mcp.example.json, from the server's
+// combwork-mcp.example.json) and the files it runs.
 // Dev-only files (probes, tests) stay out. Each zip is then checked against Combwork's rules, and, when every server is
 // packed, dist/catalog.json lists them for a release (catalog.mjs). The zips are reproducible: the same files give the
 // same bytes (zip.mjs). Node built-ins only.
@@ -17,17 +17,17 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
  * which its server.js reads its version from. */
 export const SERVERS = {
   // Its example needs no edits (defaults for a local Ollama), so it goes in as Combwork's own definition.
-  ollama: [['server.js'], ['roots.js'], ['meta.json'], ['README.md'], ['combwork-mcp.example.json', 'hive-mcp.json']],
+  ollama: [['server.js'], ['roots.js'], ['meta.json'], ['README.md'], ['combwork-mcp.example.json', 'combwork-mcp.json']],
   // It goes in as the example, to be checked before it is turned on: it maps folders into the Sandbox (WSB_TOOL_DIRS).
   'windows-sandbox': [
     ['server.js'], ['wsb.js'], ['confine.js'], ['watchdog.js'], ['roots.js'], ['client.js'], ['inside'],
-    ['meta.json'], ['README.md'], ['combwork-mcp.example.json', 'hive-mcp.example.json']
+    ['meta.json'], ['README.md'], ['combwork-mcp.example.json']
   ],
   // It goes in as the example, to be checked before it is turned on: TRILIUM_URL is the user's own Trilium.
-  trilium: [['server.js'], ['meta.json'], ['README.md'], ['combwork-mcp.example.json', 'hive-mcp.example.json']]
+  trilium: [['server.js'], ['meta.json'], ['README.md'], ['combwork-mcp.example.json']]
 }
-// The definition names Combwork reads in a zip (its MCP_ZIP_DEFINITIONS). They keep the Hive name until the app renames them.
-const DEFINITIONS = ['hive-mcp.json', 'hive-mcp.example.json']
+// The definition names Combwork reads in a zip (its MCP_ZIP_DEFINITIONS, from Combwork 1.1.0).
+const DEFINITIONS = ['combwork-mcp.json', 'combwork-mcp.example.json']
 const MAX_FILES = 5000
 const MAX_BYTES = 200 * 1024 * 1024
 
@@ -73,13 +73,13 @@ function check(data, name) {
   return { problems, files, def: defs[0] }
 }
 
-/** The definition's `${HIVE_MCP_DIR}/<name>/…` references, each checked to name a file in the zip. */
+/** The definition's `${CW_MCP_DIR}/<name>/…` references, each checked to name a file in the zip. */
 function references(def, name, files) {
-  const refs = [def.command, def.cwd, ...(def.args || []), ...Object.values(def.env || {})].filter(v => typeof v === 'string' && v.includes('${HIVE_MCP_DIR}'))
+  const refs = [def.command, def.cwd, ...(def.args || []), ...Object.values(def.env || {})].filter(v => typeof v === 'string' && v.includes('${CW_MCP_DIR}'))
   const problems = []
-  if (!refs.length) problems.push('the definition never refers to ${HIVE_MCP_DIR}/' + name)
+  if (!refs.length) problems.push('the definition never refers to ${CW_MCP_DIR}/' + name)
   for (const r of refs) {
-    const m = /^\$\{HIVE_MCP_DIR\}[\\/]([^\\/]+)[\\/](.+)$/.exec(r)
+    const m = /^\$\{CW_MCP_DIR\}[\\/]([^\\/]+)[\\/](.+)$/.exec(r)
     if (!m || m[1] !== name) problems.push(`reference outside ${name}/: ${r}`)
     else if (!files.some(e => e.name === `${name}/${m[2].replace(/\\/g, '/')}`)) problems.push(`reference to a file not in the zip: ${r}`)
   }

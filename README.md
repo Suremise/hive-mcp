@@ -100,27 +100,25 @@ Combwork can also add a server from a zip:
    node scripts\pack.mjs            # every server, into dist\<name>.zip, plus dist\catalog.json
    node scripts\pack.mjs ollama     # just this one (no catalog.json)
    ```
-2. In Combwork (or Hive Desktop 0.6.0 or later, as it was called before), open the **MCP** view, choose **Add MCP Server from File**, and pick the zip. Combwork unpacks
-   it into the workspace's `.hive/mcp/<name>/`.
+2. In Combwork 1.1.0 or later, open the **MCP** view, choose **Add MCP Server from File**, and pick the zip. Combwork
+   unpacks it into the workspace's `.combwork/mcp/<name>/`.
 3. The server is added **turned off**. Check its definition (`env`) first, then enable it. `windows-sandbox` needs
    your paths set before it can start a Sandbox (see its README).
 
 Each zip has one top folder named after the server, holding:
 - the server's code;
 - `README.md` and `LICENSE`;
-- its Combwork definition: `hive-mcp.json` when it works unchanged (`ollama`), else `hive-mcp.example.json` to edit
-  (`windows-sandbox`, `trilium`). In the repo it is the server's `combwork-mcp.example.json`; `pack.mjs` names it
-  in the zip as the app reads it.
+- its Combwork definition: `combwork-mcp.json` when it works unchanged (`ollama`), else `combwork-mcp.example.json`
+  to edit (`windows-sandbox`, `trilium`). In the repo it is the server's `combwork-mcp.example.json`.
 
-Combwork still reads the names it had as Hive Desktop: the definition is `hive-mcp.json` or `hive-mcp.example.json`
-inside the zip, `${HIVE_MCP_DIR}` is its folder of MCP servers, and `.hive/mcp` is where a workspace keeps them. This
-repo keeps those names until the app renames them.
+In a definition, `${CW_MCP_DIR}` is the workspace's folder of MCP servers (`.combwork/mcp`). The zips use only the
+names Combwork 1.1.0 introduced; earlier versions of the app don't read them.
 
 Tests and probes stay out. `pack.mjs` checks each zip against Combwork's rules for that dialog:
 - one top folder, and one definition;
 - no links or unsafe paths;
 - the file and size limits;
-- the definition's `${HIVE_MCP_DIR}/<name>/…` references point to files in the zip.
+- the definition's `${CW_MCP_DIR}/<name>/…` references point to files in the zip.
 
 The zips are reproducible: packing the same files gives the same bytes (entries sorted, one fixed time, no owners
 or extra fields), so a zip's sha256 changes only when its files do. Packing needs nothing but Node.

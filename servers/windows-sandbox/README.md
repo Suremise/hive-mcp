@@ -80,13 +80,13 @@ that names a folder that doesn't exist is reported by `sandbox_status` and `sand
 The [top-level README](../../README.md#install) shows the same entry for each client's config format.
 
 **In Combwork:** pack it (`node scripts\pack.mjs windows-sandbox` at the repo root) and add `dist\windows-sandbox.zip`
-with **Add MCP Server from File** in the MCP view. Its definition goes in as `hive-mcp.example.json`: check `env`
+with **Add MCP Server from File** in the MCP view. Its definition goes in as `combwork-mcp.example.json`: check `env`
 (`WSB_TOOL_DIRS` names Node's usual folder), then turn it on, and only in a dedicated project (see "Who gets it"). It
 sets `WSB_ROOTS_FROM_CWD=1`, because Combwork starts each agent in its project folder or worktree: Claude Code agents send
 that folder as their root, and Codex and Copilot agents start the server there.
 
 [`combwork-mcp.example.json`](combwork-mcp.example.json) is that definition: the same entry in Combwork's format, where
-`${HIVE_MCP_DIR}` is the folder Combwork keeps its MCP servers in. (The zip holds it as `hive-mcp.example.json`, and the variable keeps its Hive name: the app still reads those.)
+`${CW_MCP_DIR}` is the folder Combwork keeps its MCP servers in.
 
 **What the server needs to run:** `server.js`, `wsb.js`, `confine.js`, `watchdog.js`, `roots.js`, `inside\run.ps1`
 and `inside\screenshot.ps1`. `roots.js` is a copy of the repo's [`shared/roots.js`](../../shared/roots.js). `client.js` is a small stdio client for scripts and the tests. Everything else in this
@@ -159,7 +159,7 @@ Errors name the cause:
 | `WSB_ALLOWED_ROOTS` | Optional. `;`-separated folders. With MCP roots it **narrows** them (a build must be under both); without, it is the list of folders builds may come from. See "Multiple projects". |
 | `WSB_ROOTS_FROM_CWD` | Optional. `1`: for a client that sends no MCP roots, the folder it started the server in is the root (never a drive root). |
 | `WSB_TOOL_DIRS` | `;`-separated `name=folder` pairs mapped read-only at `C:\tools\<name>`, e.g. `node=C:\Program Files\nodejs`. All optional: add what your tests need inside. |
-| `WSB_SANDBOX_ROOT` | Optional. Where per-run folders go (default `%LOCALAPPDATA%\windows-sandbox-mcp`): `<run>\out` (the writable folder), `config.xml`, `state.json`, `watchdog.json`/`.log`. Also `session-times.jsonl` (connect → user session times). Earlier versions used `%LOCALAPPDATA%\hive-test\sandbox`: nothing moves the runs already there, and the server no longer looks there, so delete that folder once you no longer need them (or set `WSB_SANDBOX_ROOT` to it to keep using it). The repo's tests, smoke run and probes wrote their scratch under `%LOCALAPPDATA%\hive-test\scratch` then, and `%LOCALAPPDATA%\hive-mcp-tests` until the rename to combwork-mcp; it is now `%LOCALAPPDATA%\combwork-mcp-tests`, and nothing removes the old folders either. |
+| `WSB_SANDBOX_ROOT` | Optional. Where per-run folders go (default `%LOCALAPPDATA%\windows-sandbox-mcp`): `<run>\out` (the writable folder), `config.xml`, `state.json`, `watchdog.json`/`.log`. Also `session-times.jsonl` (connect → user session times). The repo's tests, smoke run and probes put their scratch under `%LOCALAPPDATA%\combwork-mcp-tests`. |
 | `WSB_SESSION_WAIT_MS` | Optional. How long `sandbox_start` waits for the user session (default 90000). |
 
 Test-only: `WSB_STUB` (a Node script run instead of `wsb.exe`), `WSB_STOP_RETRY_MS`, `WSB_WATCHDOG_CHECK_MS`.
