@@ -11,7 +11,7 @@ const { spawn } = require('child_process')
 const fs = require('fs')
 const os = require('os')
 const { join } = require('path')
-const { ID_RE, wsb, list, stopConfirmed, configXml, hostProblem, hint, connect, windowOp, SAC_QUERY, SAC_OFF, sacState } = require('./wsb')
+const { LAUNCH_DIR, ID_RE, wsb, list, stopConfirmed, configXml, hostProblem, hint, connect, windowOp, SAC_QUERY, SAC_OFF, sacState } = require('./wsb')
 const { segments, outRoot, readLive, pinRoot, readFile, listOut, globMatcher, parsePid, inside } = require('./confine')
 const { realDir, profileRefusal, rootsClient, allowedRoots } = require('./roots')
 
@@ -199,7 +199,8 @@ function describeStop(id, res) {
 }
 
 function startWatchdog(r) {
-  const wd = spawn(process.execPath, [join(__dirname, 'watchdog.js'), r.runDir], { detached: true, stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true })
+  // Detached, it can outlive this server: it starts in LAUNCH_DIR, not the agent's folder this server runs in (MC-1484).
+  const wd = spawn(process.execPath, [join(__dirname, 'watchdog.js'), r.runDir], { cwd: LAUNCH_DIR, detached: true, stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true })
   wd.on('error', e => { r.watchdogError = e.message })
   wd.stdin.on('error', () => {})
   wd.unref()

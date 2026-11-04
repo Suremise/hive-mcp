@@ -9,8 +9,12 @@
 const { execFile } = require('child_process')
 const { mkdirSync, writeFileSync, appendFileSync } = require('fs')
 const { join } = require('path')
+const os = require('os')
 
 const WSB = join(process.env.LOCALAPPDATA, 'Microsoft', 'WindowsApps', 'wsb.exe')
+// wsb.exe starts here, never in the folder the probe was run from: the broker it brings up (WindowsSandboxServer.exe)
+// outlives the Sandbox and would keep that folder as its current directory, so it couldn't be renamed (MC-1484).
+const LAUNCH_DIR = os.tmpdir()
 
 // One scratch folder per probe run: <root>\wsb-probe-<time>\<probe>. PROBE_SCRATCH overrides the root.
 function scratchDir(probe) {
@@ -32,7 +36,7 @@ function log(...parts) {
 function wsb(args, timeoutMs = 300_000) {
   const t0 = Date.now()
   return new Promise(resolve => {
-    execFile(WSB, [...args, '--raw'], { timeout: timeoutMs, windowsHide: true, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
+    execFile(WSB, [...args, '--raw'], { cwd: LAUNCH_DIR, timeout: timeoutMs, windowsHide: true, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
       let json = null
       try { json = stdout.trim() ? JSON.parse(stdout) : null } catch { /* not JSON */ }
       const code = err ? (typeof err.code === 'number' ? err.code : err.code || 'error') : 0
@@ -183,4 +187,4 @@ async function withSandbox(probe, cfg, body) {
   return results
 }
 
-module.exports = { WSB, wsb, running, config, exec, until, withSandbox, scratchDir, log }
+module.exports = { WSB, LAUNCH_DIR, wsb, running, config, exec, until, withSandbox, scratchDir, log }

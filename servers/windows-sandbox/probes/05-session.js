@@ -10,7 +10,7 @@
 const { spawn, execFileSync } = require('child_process')
 const { mkdirSync, existsSync, readFileSync, statSync } = require('fs')
 const { join } = require('path')
-const { WSB, config, exec, until, withSandbox } = require('./lib')
+const { WSB, LAUNCH_DIR, config, exec, until, withSandbox } = require('./lib')
 
 const read = p => (existsSync(p) ? readFileSync(p, 'utf8').trim() : null)
 const ps = (script, args = '') => `powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\probe\\inside\\${script} ${args}`
@@ -39,7 +39,7 @@ withSandbox('05-session', dir => {
     return { exit: r.json?.ExitCode, err: r.stderr || undefined, bytes: existsSync(p) ? statSync(p).size : 0 }
   }
   await until(async () => (await exec(id, 'cmd.exe /c ver', 'System')).code === 0, 180_000, 250)
-  spawn(WSB, ['connect', '--id', id], { windowsHide: true, stdio: 'ignore' })
+  spawn(WSB, ['connect', '--id', id], { cwd: LAUNCH_DIR, windowsHide: true, stdio: 'ignore' })
   s.loginReadyMs = await until(async () => (await exec(id, 'cmd.exe /c ver', 'ExistingLogin')).code === 0, 180_000)
   await new Promise(r => setTimeout(r, 4000))
   s.pid = sessionPid(id)

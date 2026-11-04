@@ -4,6 +4,11 @@
  * Everything that decides whether a Sandbox is running fails closed: `list` counts only with exit 0 and valid JSON
  * holding an array of string Ids, and a stop counts only once `list` confirms the id is gone (design note §3).
  *
+ * Every launch runs in LAUNCH_DIR, never the server's own working folder. The client starts the server in the agent's
+ * folder (WSB_ROOTS_FROM_CWD reads the roots from it), and wsb.exe brings up WindowsSandboxServer.exe, a broker that
+ * outlives the Sandbox and the session: started from that folder, it would keep it as its current directory, and
+ * Windows then refuses to rename the folder (MC-1484).
+ *
  * WSB_STUB (tests only): path of a Node script run instead of wsb.exe, with the same arguments.
  */
 const { execFile, spawn } = require('child_process')
@@ -12,6 +17,8 @@ const { join } = require('path')
 const os = require('os')
 
 const WSB = join(process.env.LOCALAPPDATA || '', 'Microsoft', 'WindowsApps', 'wsb.exe')
+// Where wsb.exe and the other host commands start: the system temp folder, outside any project.
+const LAUNCH_DIR = os.tmpdir()
 const STOP_ATTEMPTS = 3
 const STOP_RETRY_MS = Number(process.env.WSB_STOP_RETRY_MS || 3000)
 // Ids are GUIDs; checked before an id goes into a command line.
@@ -24,7 +31,7 @@ function wsb(args, timeoutMs = 120_000) {
   const t0 = Date.now()
   const { file, pre } = command()
   return new Promise(resolve => {
-    execFile(file, [...pre, ...args, '--raw'], { timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
+    execFile(file, [...pre, ...args, '--raw'], { cwd: LAUNCH_DIR, timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
       let json = null
       try { json = stdout.trim() ? JSON.parse(stdout) : null } catch { /* not JSON */ }
       const timedOut = !!err?.killed
@@ -111,7 +118,7 @@ function hint(stderr = '') {
 /** `wsb connect`: opens the Sandbox window on the host desktop, which creates the user session. */
 function connect(id) {
   const { file, pre } = command()
-  const child = spawn(file, [...pre, 'connect', '--id', id], { windowsHide: true, stdio: 'ignore', detached: false })
+  const child = spawn(file, [...pre, 'connect', '--id', id], { cwd: LAUNCH_DIR, windowsHide: true, stdio: 'ignore', detached: false })
   child.on('error', () => {})
   return child
 }
@@ -131,8 +138,8 @@ function windowOp(id, op) {
     ? [process.execPath, [process.env.WSB_STUB, '__window', op, id]]
     : ['powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ops[op]]]
   return new Promise(resolve => {
-    execFile(file, args, { timeout: 30_000, windowsHide: true }, (err, stdout) => resolve({ ok: !err, detail: String(stdout).trim() || String(err?.message || '') }))
+    execFile(file, args, { cwd: LAUNCH_DIR, timeout: 30_000, windowsHide: true }, (err, stdout) => resolve({ ok: !err, detail: String(stdout).trim() || String(err?.message || '') }))
   })
 }
 
-module.exports = { WSB, ID_RE, wsb, list, stopConfirmed, configXml, hostProblem, hint, connect, windowOp, SAC_KEY, SAC_QUERY, SAC_OFF, sacState }
+module.exports = { WSB, LAUNCH_DIR, ID_RE, wsb, list, stopConfirmed, configXml, hostProblem, hint, connect, windowOp, SAC_KEY, SAC_QUERY, SAC_OFF, sacState }

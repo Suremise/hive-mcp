@@ -303,6 +303,43 @@ test('killed hard, the server leaves it to the watchdog, which stops it', async 
   assert.strictEqual(w.reason, 'server gone')
 })
 
+test('every wsb launch and the watchdog start outside the folder the server runs in (MC-1484)', async () => {
+  // The client starts the server in the agent's folder. wsb.exe brings up a broker (WindowsSandboxServer.exe) that
+  // outlives the Sandbox: started there, it would keep that folder as its current directory, so it couldn't be renamed.
+  const os = require('os')
+  const { LAUNCH_DIR } = require('../wsb')
+  assert.strictEqual(LAUNCH_DIR, os.tmpdir())
+  const s = scratch('srv-cwd')
+  const agent = path.join(s.dir, 'agent-slot')
+  fs.mkdirSync(agent)
+  const real = p => fs.realpathSync.native(p).toLowerCase()
+  const srv = server(s.env, { cwd: agent })
+  const r = await srv.call('sandbox_start', { build: path.join(s.dir, 'builds', 'app'), closeWindow: true })
+  assert.ok(!r.isError, r.text)
+  assert.ok(!(await srv.call('sandbox_run', { command: 'echo hi' })).isError)
+  assert.ok(!(await srv.call('sandbox_stop')).isError)
+  await srv.close()
+  // A second run, killed hard, so the watchdog's own stop is among the launches.
+  const srv2 = server(s.env, { cwd: agent })
+  assert.ok(!(await srv2.call('sandbox_start', { build: path.join(s.dir, 'builds', 'app') })).isError)
+  srv2.child.kill('SIGKILL')
+  await waitFor(() => !s.read().sandboxes.length, 15_000, 'the watchdog to stop the Sandbox')
+
+  const cwds = s.read().cwds
+  const cmds = new Set(cwds.map(c => c.cmd))
+  for (const c of ['list', 'start', 'connect', 'exec', '__window', 'stop']) assert.ok(cmds.has(c), `no ${c} call recorded: ${[...cmds]}`)
+  for (const c of cwds) assert.strictEqual(real(c.cwd), real(LAUNCH_DIR), `${c.cmd} ran in ${c.cwd}`)
+  const logs = fs.readdirSync(path.join(s.dir, 'sandbox')).map(d => path.join(s.dir, 'sandbox', d, 'watchdog.log')).filter(f => fs.existsSync(f))
+  assert.strictEqual(logs.length, 2)
+  for (const f of logs) {
+    const cwd = / cwd (.+)$/.exec(fs.readFileSync(f, 'utf8').split('\n')[0])?.[1]
+    assert.ok(cwd, f)
+    assert.strictEqual(real(cwd.trim()), real(LAUNCH_DIR), `watchdog ran in ${cwd}`)
+  }
+  // Nothing this test started holds the agent's folder: it can be renamed.
+  fs.renameSync(agent, agent + '-renamed')
+})
+
 test('a restarted server stops a Sandbox an earlier run left, and never one it did not start', async () => {
   const s = scratch('srv-restart')
   const mine = 'aaaaaaaa-0000-4000-8000-000000000001'
