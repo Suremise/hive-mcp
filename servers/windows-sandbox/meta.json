@@ -1,5 +1,5 @@
 {
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Test builds on a clean, throwaway Windows in Windows Sandbox.",
   "tags": ["testing", "windows", "sandbox"],
   "requires": {
