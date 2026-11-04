@@ -1,6 +1,6 @@
 // Each server reports its catalogue version, its meta.json's, as serverInfo.version: from the repo and from its packed
 // zip, for every server pack.mjs packs. Without a readable meta.json version it reports "unknown", never a guess.
-// Scratch (the packed and unpacked copies) goes under VERSION_TEST_SCRATCH, else %LOCALAPPDATA%\hive-mcp-tests\version-tests
+// Scratch (the packed and unpacked copies) goes under VERSION_TEST_SCRATCH, else %LOCALAPPDATA%\combwork-mcp-tests\version-tests
 // (clean-scratch.js's SCRATCH), removed after.
 const test = require('node:test')
 const assert = require('assert')

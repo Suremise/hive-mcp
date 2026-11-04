@@ -4,7 +4,7 @@
  * Every probe runs its body through `withSandbox`, which always stops the Sandbox it started (also
  * after a failure or Ctrl+C) and then lists running Sandboxes to confirm none is left.
  *
- * All logs and scratch go to one folder under %LOCALAPPDATA%\hive-mcp-tests (test/clean-scratch.js's SCRATCH), never the repo.
+ * All logs and scratch go to one folder under %LOCALAPPDATA%\combwork-mcp-tests (test/clean-scratch.js's SCRATCH), never the repo.
  */
 const { execFile } = require('child_process')
 const { mkdirSync, writeFileSync, appendFileSync } = require('fs')

@@ -1,4 +1,4 @@
-// catalog.json: the list of servers a release offers, each with its zip's URL and sha256, for Hive's MCP view (or any
+// catalog.json: the list of servers a release offers, each with its zip's URL and sha256, for Combwork's MCP view (or any
 // client) to download and check. The format is documented in the README ("The catalogue"); validate() is its reference.
 // Each server's entry comes from its own servers/<name>/meta.json plus its packed zip.
 import { createHash } from 'node:crypto'

@@ -78,7 +78,7 @@ test('the suites\' scratch folders are the ones their tests write to', () => {
 })
 
 test('every test, the smoke run and the probes put their scratch under the one root, SCRATCH', () => {
-  assert.strictEqual(SCRATCH, path.join(process.env.LOCALAPPDATA || os.tmpdir(), 'hive-mcp-tests'))
+  assert.strictEqual(SCRATCH, path.join(process.env.LOCALAPPDATA || os.tmpdir(), 'combwork-mcp-tests'))
   const repo = path.join(__dirname, '..')
   const dirs = ['test', ...fs.readdirSync(path.join(repo, 'servers')).flatMap(s => ['test', 'probes'].map(d => path.join('servers', s, d)))]
   const files = dirs.filter(d => fs.existsSync(path.join(repo, d))).flatMap(d => fs.readdirSync(path.join(repo, d)).filter(f => f.endsWith('.js')).map(f => path.join(d, f)))

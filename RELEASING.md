@@ -1,7 +1,7 @@
 # Releasing
 
 A release is one tag for the whole repo, `v<version>` from `package.json`, and a GitHub release under that tag
-holding every server's zip and `catalog.json` ([README, The catalogue](README.md#the-catalogue)). Hive's MCP view
+holding every server's zip and `catalog.json` ([README, The catalogue](README.md#the-catalogue)). Combwork's MCP view
 reads the latest release's `catalog.json`, so a release is what users see. Only the maintainer releases.
 
 Each server keeps its own version in `servers/<name>/meta.json`, and only there: the zip ships it beside
@@ -33,7 +33,7 @@ files changed must have a higher version, and the release check refuses it other
    It checks again, then runs `git tag -a v<version>`, `git push origin v<version>` and `gh release create` with the
    zips and `catalog.json` (needs `gh auth login`). The release notes are GitHub's, from the merged pull requests;
    edit them on the release's page if you like.
-4. **Look.** Open `https://github.com/Suremise/hive-mcp/releases/latest/download/catalog.json` and check it is the
+4. **Look.** Open `https://github.com/Suremise/combwork-mcp/releases/latest/download/catalog.json` and check it is the
    new one.
 
 ## When a step fails

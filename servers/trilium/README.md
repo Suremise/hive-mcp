@@ -3,7 +3,7 @@
 An MCP server that lets agents search, read and add to your notes in [Trilium Notes](https://github.com/TriliumNext/Trilium)
 (TriliumNext) through its ETAPI. It is built to be **lean on tokens**: an agent finds its way with a compact index of
 titles, reads long notes outline first, and gets plain compact text back, never JSON or raw HTML. It runs over stdio
-(`node server.js`) and works with Hive or any other MCP client.
+(`node server.js`) and works with Combwork or any other MCP client.
 
 It uses only Node built-ins: no dependencies, no `npm install`. Its version is in [meta.json](meta.json), which it reports to MCP clients. MIT licence ([LICENSE](../../LICENSE)).
 
@@ -22,7 +22,7 @@ It uses only Node built-ins: no dependencies, no `npm install`. Its version is i
 ```
 
 (or **Settings → System → About → Advanced system settings → Environment Variables**, under "User variables").
-Programs started afterwards see it: restart your MCP client (and Hive) once it is set. On macOS or Linux, export it
+Programs started afterwards see it: restart your MCP client (and Combwork) once it is set. On macOS or Linux, export it
 from your shell profile.
 
 **2. Register the server.** In any MCP client (Claude Code, Codex, Copilot, Claude Desktop, …), add an entry that runs
@@ -33,7 +33,7 @@ from your shell profile.
   "mcpServers": {
     "trilium": {
       "command": "node",
-      "args": ["C:\\path\\to\\hive-mcp\\servers\\trilium\\server.js"],
+      "args": ["C:\\path\\to\\combwork-mcp\\servers\\trilium\\server.js"],
       "env": {
         "TRILIUM_URL": "http://localhost:8080",
         "TRILIUM_ETAPI_TOKEN": "${TRILIUM_ETAPI_TOKEN}"
@@ -49,9 +49,9 @@ itself; the server spots that and says so. For such a client, leave `TRILIUM_ETA
 started by the client inherits the client's environment, user variables included. The
 [top-level README](../../README.md#install) shows the same kind of entry for each client's config format.
 
-**In Hive:** pack it (`node scripts\pack.mjs trilium` at the repo root) and add `dist\trilium.zip` with **Add MCP
-Server from File** in the MCP view. Its definition, `hive-mcp.example.json`, is added turned off: set `TRILIUM_URL` to
-your Trilium, keep the token as the `${TRILIUM_ETAPI_TOKEN}` reference (Hive warns about a literal secret in a
+**In Combwork:** pack it (`node scripts\pack.mjs trilium` at the repo root) and add `dist\trilium.zip` with **Add MCP
+Server from File** in the MCP view. Its definition, [`combwork-mcp.example.json`](combwork-mcp.example.json) (in the zip as `hive-mcp.example.json`, the name the app still reads), is added turned off: set `TRILIUM_URL` to
+your Trilium, keep the token as the `${TRILIUM_ETAPI_TOKEN}` reference (Combwork warns about a literal secret in a
 definition), then turn it on.
 
 **What the server needs to run:** `server.js` alone.

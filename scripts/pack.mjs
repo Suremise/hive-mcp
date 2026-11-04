@@ -1,6 +1,7 @@
-// Packs each server as dist/<name>.zip in the layout Hive's Add MCP Server from File takes: one top folder
-// named after the server, holding its definition (hive-mcp.json, else hive-mcp.example.json) and the files it runs.
-// Dev-only files (probes, tests) stay out. Each zip is then checked against Hive's rules, and, when every server is
+// Packs each server as dist/<name>.zip in the layout Combwork's Add MCP Server from File takes: one top folder
+// named after the server, holding its definition (hive-mcp.json, else hive-mcp.example.json: the names Combwork still
+// reads, from the server's combwork-mcp.example.json) and the files it runs.
+// Dev-only files (probes, tests) stay out. Each zip is then checked against Combwork's rules, and, when every server is
 // packed, dist/catalog.json lists them for a release (catalog.mjs). The zips are reproducible: the same files give the
 // same bytes (zip.mjs). Node built-ins only.
 //   node scripts/pack.mjs [--out <dir>] [name ...]
@@ -15,16 +16,17 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 /** What each zip holds: [from, to] relative to the server's folder (or the repo, for LICENSE). Each holds its meta.json,
  * which its server.js reads its version from. */
 export const SERVERS = {
-  // Its example needs no edits (defaults for a local Ollama), so it goes in as Hive's own definition.
-  ollama: [['server.js'], ['roots.js'], ['meta.json'], ['README.md'], ['hive-mcp.example.json', 'hive-mcp.json']],
+  // Its example needs no edits (defaults for a local Ollama), so it goes in as Combwork's own definition.
+  ollama: [['server.js'], ['roots.js'], ['meta.json'], ['README.md'], ['combwork-mcp.example.json', 'hive-mcp.json']],
   // It goes in as the example, to be checked before it is turned on: it maps folders into the Sandbox (WSB_TOOL_DIRS).
   'windows-sandbox': [
     ['server.js'], ['wsb.js'], ['confine.js'], ['watchdog.js'], ['roots.js'], ['client.js'], ['inside'],
-    ['meta.json'], ['README.md'], ['hive-mcp.example.json']
+    ['meta.json'], ['README.md'], ['combwork-mcp.example.json', 'hive-mcp.example.json']
   ],
   // It goes in as the example, to be checked before it is turned on: TRILIUM_URL is the user's own Trilium.
-  trilium: [['server.js'], ['meta.json'], ['README.md'], ['hive-mcp.example.json']]
+  trilium: [['server.js'], ['meta.json'], ['README.md'], ['combwork-mcp.example.json', 'hive-mcp.example.json']]
 }
+// The definition names Combwork reads in a zip (its MCP_ZIP_DEFINITIONS). They keep the Hive name until the app renames them.
 const DEFINITIONS = ['hive-mcp.json', 'hive-mcp.example.json']
 const MAX_FILES = 5000
 const MAX_BYTES = 200 * 1024 * 1024
@@ -50,7 +52,7 @@ function entries(data) {
 
 const unsafePart = p => !p || p === '.' || p === '..' || /[<>:"|?*\x00-\x1f]/.test(p) || /[. ]$/.test(p) || /^(con|prn|aux|nul|com\d|lpt\d)(\.|$)/i.test(p)
 
-/** Problems with a server zip under Hive's rules; [] when Hive would add it as `name`. */
+/** Problems with a server zip under Combwork's rules; [] when Combwork would add it as `name`. */
 function check(data, name) {
   const all = entries(data)
   const files = all.filter(e => !e.name.replace(/\\/g, '/').endsWith('/'))
@@ -126,7 +128,7 @@ function pack(name, out) {
   const problems = [...c.problems, ...ref.problems, ...localRequires(packed), ...crlfFiles(packed)]
   console.log(`${file}\n  ${c.files.length} files, definition ${name}/${c.def}, refers to ${ref.refs.join(', ')}`)
   for (const e of c.files) console.log(`    ${e.name}`)
-  if (problems.length) throw new Error(`${name}.zip is not in Hive's layout:\n  ${problems.join('\n  ')}`)
+  if (problems.length) throw new Error(`${name}.zip is not in Combwork's layout:\n  ${problems.join('\n  ')}`)
   writeFileSync(file, data)
   return data
 }

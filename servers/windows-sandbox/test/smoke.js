@@ -4,7 +4,7 @@
  *   node test/smoke.js [--runs N] [--wait-min M]
  * --runs N repeats start/stop N times to time the user session (default 1); --wait-min waits up to M minutes for
  * another agent's Sandbox to finish first (default 0: skip). Scratch and logs go to WSB_TEST_SCRATCH
- * (default %LOCALAPPDATA%\hive-mcp-tests\wsb-mcp-smoke-<time>); the summary is smoke.json there.
+ * (default %LOCALAPPDATA%\combwork-mcp-tests\wsb-mcp-smoke-<time>); the summary is smoke.json there.
  * Exits non-zero if a check fails or cleanup can't be confirmed. Every Sandbox it starts gets a fallback stop in a
  * finally (ensureGone); one that can't be confirmed stopped is named in smoke.json → leftRunning.
  * For the fault tests (smoke-faults.test.js) only: with WSB_STUB set it drives the stub; SMOKE_FAULT=evidence makes

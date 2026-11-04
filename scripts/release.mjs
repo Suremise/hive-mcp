@@ -56,9 +56,9 @@ function main(argv) {
 
   const assets = [...(next?.servers || []).map(s => `dist/${s.name}.zip`), 'dist/catalog.json']
   const steps = [
-    ['git', ['tag', '-a', tag, '-m', `hive-mcp ${tag}`]],
+    ['git', ['tag', '-a', tag, '-m', `${pkg.name} ${tag}`]],
     ['git', ['push', 'origin', tag]],
-    ['gh', ['release', 'create', tag, '--repo', repo, '--title', `hive-mcp ${tag}`, '--generate-notes', '--verify-tag', ...assets]]
+    ['gh', ['release', 'create', tag, '--repo', repo, '--title', `${pkg.name} ${tag}`, '--generate-notes', '--verify-tag', ...assets]]
   ]
   if (problems.length) {
     console.error(`Not ready to release ${tag}:\n  ${problems.join('\n  ')}`)
