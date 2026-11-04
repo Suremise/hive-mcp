@@ -38,12 +38,12 @@ unset, the server uses the first model Ollama lists, and agents can always pass 
 pulled, the server's instructions say so, so agents pass `model` instead.
 
 **In Combwork:** pack it (`node scripts\pack.mjs ollama` at the repo root) and add `dist\ollama.zip` with **Add MCP Server
-from File** in the MCP view. Its definition, `hive-mcp.json`, works unchanged for a local Ollama. It sets
+from File** in the MCP view. Its definition, `combwork-mcp.json`, works unchanged for a local Ollama. It sets
 `OLLAMA_ROOTS_FROM_CWD=1`, because Combwork starts each agent in its project folder or worktree, and leaves the model
 unset: add `OLLAMA_DEFAULT_MODEL` to pick one.
 
 [`combwork-mcp.example.json`](combwork-mcp.example.json) is that definition: the same entry in Combwork's format, where
-`${HIVE_MCP_DIR}` is the folder Combwork keeps its MCP servers in. (The zip holds it as `hive-mcp.json`, and the variable keeps its Hive name: the app still reads those.)
+`${CW_MCP_DIR}` is the folder Combwork keeps its MCP servers in. (The zip holds it as `combwork-mcp.json`.)
 
 **What the server needs to run:** `server.js` and `roots.js` (a copy of the repo's
 [`shared/roots.js`](../../shared/roots.js)).

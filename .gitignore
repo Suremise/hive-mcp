@@ -3,6 +3,7 @@ node_modules/
 dist/
 
 # Local tool and agent state: never part of the repo
+.combwork/
 .hive/
 .agents/
 .claude/

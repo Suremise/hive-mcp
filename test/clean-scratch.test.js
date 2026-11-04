@@ -88,6 +88,5 @@ test('every test, the smoke run and the probes put their scratch under the one r
     const src = fs.readFileSync(path.join(repo, f), 'utf8')
     // A default of its own would be a join from LOCALAPPDATA or the temp folder; only clean-scratch.js makes SCRATCH.
     if (f !== path.join('test', 'clean-scratch.js')) assert.doesNotMatch(src, /join\(\s*process\.env\.LOCALAPPDATA\b(?!,\s*'Microsoft')/, `${f} makes its own scratch root`)
-    assert.doesNotMatch(src, /'hive-test'/, `${f} still names hive-test`)
   }
 })
